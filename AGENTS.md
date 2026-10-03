@@ -302,8 +302,14 @@ innym w drogę i żeby każda funkcja przeszła ten sam proces. Dotyczą też lu
    - `src/tuttitrip_worker/contracts.py` i `contracts/jobs.schema.json` (najpierw tu, potem lustro w
      backendzie, skill `sync-contracts`),
    - `main.py` (rejestracja workflowów), `shared/llm/models.py` (katalog modeli), `shared/dbos/runtime.py`.
-6. Smoke test jest obowiązkowy dla KAŻDEGO zrealizowanego feature'a. Po pushu gałęzi poczekaj na
-   wdrożenie podglądu i przejdź na żywo scenariusz z kryteriów akceptacji issue:
+6. Smoke test jest obowiązkowy dla KAŻDEGO zrealizowanego feature'a. Podglądy gałęzi są domyślnie wyłączone (zmienna organizacji `PREVIEW_DEPLOYS=false`, oszczędzamy
+   moc obliczeniową): develop i main wdrażają się zawsze, gałąź tylko z etykietą `preview` na PR (albo gdy
+   zmienna ma wartość `true`). Użyj etykiety wyłącznie, gdy żywy podgląd jest niezbędny; w pozostałych
+   przypadkach smoke test robisz lokalnie, a po merge'u sprawdzasz develop. Pominięty podgląd zostawia
+   w podsumowaniu joba jedną linię "Preview disabled (PREVIEW_DEPLOYS=false); add label `preview` to deploy".
+   Przejdź scenariusz z kryteriów akceptacji issue:
+   - lokalnie: backend (lokalny stos) i worker uruchomione razem (README); po merge'u to samo na develop,
+   - tylko gdy podgląd jest niezbędny: etykieta `preview` na PR wdraża worker gałęzi,
    - worker gałęzi startuje tylko obok wdrożenia backendu o tej samej nazwie gałęzi (deploy/CONVENTIONS.md
      w backendzie); bez niego uruchom backend i worker lokalnie (README),
    - zleć zadanie przez API (`POST /api/v1/...` z backendu) i odpytuj `GET /api/v1/jobs/{id}` aż do
@@ -394,7 +400,7 @@ Wydania:
 ## Git flow
 
 - `main` is production, `develop` is integration; both protected (PR + green
-  `checks`, no force-push, no deletion) where the GitHub plan allows it.
+  `lint` and `tests`, no force-push, no deletion) where the GitHub plan allows it.
 - Branch from `develop`: `feature/<short-name>`, `fix/<short-name>`,
   `chore/<short-name>`. PR into `develop`; release = PR `develop` -> `main`.
 - After a merge the `Delete merged branch` workflow
@@ -409,9 +415,15 @@ Wydania:
 
 ## Deployment
 
-Every push runs CI (`checks` and `contracts-check` on `[self-hosted, hackathon]`),
+Every push runs CI once (checks run on push only): `lint` and
+`tests` and `contracts-check` in parallel on `[self-hosted, hackathon]`,
 then `deploy` on the runner installed on the host
-(`[self-hosted, tuttitrip-worker-deploy]`, in `~/tuttitrip-worker-runner`).
+(`[self-hosted, tuttitrip-worker-deploy]`, in `~/tuttitrip-worker-runner`). A
+branch preview deploys only when the org variable `PREVIEW_DEPLOYS` is `true` or
+the PR has the label `preview` (the `preview-gate` job decides and writes a
+summary line when it is off), without waiting for the checks; `main` and `develop` wait
+for `lint` and `tests`. A newer push cancels the unfinished checks of the same
+branch, never a deployment.
 
 | Branch | Image | Container | Backend env file |
 | --- | --- | --- | --- |

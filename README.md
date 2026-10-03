@@ -158,8 +158,10 @@ synchronizujemy skillem `sync-contracts` (oba w `.claude/skills/`).
 
 ## Wdrożenie
 
-Każdy push uruchamia CI na runnerach `[self-hosted, hackathon]`, a potem
-deploy na runnerze zainstalowanym na `dellpromaxgb10`
+Każdy push uruchamia CI raz: `lint` i `tests` równolegle na runnerach
+`[self-hosted, hackathon]`, `contracts-check` też na tych runnerach. Podgląd
+gałęzi wdraża się od razu, `main` i `develop` czekają na zielone `lint` i
+`tests`. Deploy idzie na runnerze zainstalowanym na `dellpromaxgb10`
 (`[self-hosted, tuttitrip-worker-deploy]`).
 
 | Gałąź | Obraz | Kontener |
@@ -199,7 +201,7 @@ Ollama (`nomic-embed-text`), do której worker ma dostęp przez sieć `ollama_ne
 ## Git flow
 
 - `main` to produkcja, `develop` to integracja. Na obu wymagany jest PR i
-  zielone `checks`, bez force-push i bez usuwania (o ile plan GitHuba na to
+  zielone `lint` i `tests`, bez force-push i bez usuwania (o ile plan GitHuba na to
   pozwala).
 - Gałęzie zakładamy od `develop`: `feature/<nazwa>`, `fix/<nazwa>`,
   `chore/<nazwa>`. PR idzie do `develop`, a wydanie to PR `develop` → `main`.
