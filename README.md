@@ -117,10 +117,6 @@ Kolejki:
 | `local_llm` | model lokalny na GPU (dellpromaxgb10) | 2 naraz |
 | `openrouter` | modele przez OpenRouter | 8 naraz, 30 startów na minutę |
 
-Na okres przejściowy worker obsługuje też stare nazwy `system` i `planning`,
-których używa jeszcze lustro kontraktu w backendzie. Znikną, gdy backend
-przejdzie na nazwy z tabeli.
-
 ## Integracja z backendem
 
 Wspólne zasady obu repozytoriów są w `deploy/CONVENTIONS.md` w repo backendu
