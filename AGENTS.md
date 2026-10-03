@@ -302,7 +302,12 @@ Wydania:
   `checks`, no force-push, no deletion) where the GitHub plan allows it.
 - Branch from `develop`: `feature/<short-name>`, `fix/<short-name>`,
   `chore/<short-name>`. PR into `develop`; release = PR `develop` -> `main`.
-- Head branches are deleted automatically after merge.
+- After a merge the `Delete merged branch` workflow
+  (`.github/workflows/delete-merged-branch.yml`, logic in the org `.github`
+  repo) deletes the head branch and starts `cleanup.yml` for its image. It
+  never deletes `main` or `develop`, so release PRs go straight from
+  `develop`. GitHub's "Automatically delete head branches" is off: without
+  branch protection it deleted `develop` after every release PR.
 - A contract change lands here first, then in the backend mirror.
 - No AI attribution in commits, PRs or docs (no `Co-Authored-By` trailers for
   assistants, no "generated with" lines).
