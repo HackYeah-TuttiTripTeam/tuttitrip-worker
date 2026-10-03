@@ -93,6 +93,7 @@ class ErrorCode(StrEnum):
     UNSUPPORTED_CONTRACT_VERSION = "unsupported_contract_version"
     INVALID_PAYLOAD = "invalid_payload"
     NOT_IMPLEMENTED = "not_implemented"
+    DOCUMENT_NOT_FOUND = "document_not_found"
 
 
 class ContractPayload(BaseModel):
@@ -497,6 +498,23 @@ def parse_input[T: ContractPayload](model: type[T], payload: object) -> T:
         )
         msg = f"invalid {model.__name__}: {exc}"
         raise ContractError(msg, data) from exc
+
+
+def document_not_found(document_id: UUID, kind: str) -> ContractError:
+    """Error of a workflow whose pasted document is missing or of another kind.
+
+    Args:
+        document_id: Id from the payload.
+        kind: Expected document kind (``plan`` or ``offer``).
+
+    Returns:
+        A ``ContractError`` with code ``document_not_found``.
+    """
+    data = ContractErrorData(
+        code=ErrorCode.DOCUMENT_NOT_FOUND,
+        supported_versions=sorted(SUPPORTED_CONTRACT_VERSIONS),
+    )
+    return ContractError(f"no {kind} document {document_id} for this trip", data)
 
 
 def not_implemented(workflow: Workflow) -> ContractError:
