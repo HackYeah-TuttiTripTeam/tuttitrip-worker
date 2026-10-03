@@ -4,8 +4,8 @@ name: CI
 # the `labeled` event, which does nothing but deploy a preview (label `preview`).
 #   lint, tests    parallel, on the org runners; a newer push to the same branch
 #                  cancels them (never on main/develop).
-#   contracts-check  8 s of curl + diff, so it runs on a GitHub-hosted runner
-#                  instead of waiting in the queue for a hackathon runner.
+#   contracts-check  8 s of curl + diff, independent of the other jobs (no needs);
+#                  private repo, so it stays on the self-hosted runners.
 #   deploy         main/develop wait for lint + tests; a branch preview (when
 #                  enabled, see below) deploys at once, not waiting for the queue.
 #                  Deploys are never cancelled mid-way, they run one after another per branch.
@@ -74,9 +74,7 @@ jobs:
     # The worker is canonical, so drift is reported (warning + diff in the job
     # summary), not failed; the backend's own contracts-check fails instead.
     name: contracts-check
-    # GitHub-hosted: this repository is private, so the run draws on the org's
-    # included minutes (about one billed minute per push).
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hackathon]
     timeout-minutes: 5
     concurrency:
       group: ci-contracts-${{ github.ref }}

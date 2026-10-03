@@ -411,8 +411,8 @@ Wydania:
 ## Deployment
 
 Every push runs CI once (checks run on push only): `lint` and
-`tests` in parallel on `[self-hosted, hackathon]`, `contracts-check` on a
-GitHub-hosted runner, then `deploy` on the runner installed on the host
+`tests` and `contracts-check` in parallel on `[self-hosted, hackathon]`,
+then `deploy` on the runner installed on the host
 (`[self-hosted, tuttitrip-worker-deploy]`, in `~/tuttitrip-worker-runner`). A
 branch preview deploys only when the org variable `PREVIEW_DEPLOYS` is `true` or
 the PR has the label `preview` (the `preview-gate` job decides and writes a

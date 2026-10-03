@@ -158,7 +158,7 @@ synchronizujemy skillem `sync-contracts` (oba w `.claude/skills/`).
 ## Wdrożenie
 
 Każdy push uruchamia CI raz: `lint` i `tests` równolegle na runnerach
-`[self-hosted, hackathon]`, `contracts-check` na runnerze GitHuba. Podgląd
+`[self-hosted, hackathon]`, `contracts-check` też na tych runnerach. Podgląd
 gałęzi wdraża się od razu, `main` i `develop` czekają na zielone `lint` i
 `tests`. Deploy idzie na runnerze zainstalowanym na `dellpromaxgb10`
 (`[self-hosted, tuttitrip-worker-deploy]`).
