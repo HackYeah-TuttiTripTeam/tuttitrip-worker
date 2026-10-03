@@ -128,3 +128,8 @@ testpaths = ["tests"]
 strict = true
 addopts = ["-ra", "--import-mode=importlib"]
 filterwarnings = ["error"]
+# CI runs `pytest -m "not integration and not e2e"`; the smoke step runs the rest locally.
+markers = [
+    "integration: launches a real DBOS runtime (SQLite system database); local smoke step, not CI",
+    "e2e: end to end against real services (network, real models); local smoke step, not CI",
+]
