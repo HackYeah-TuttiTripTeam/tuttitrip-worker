@@ -59,8 +59,8 @@ W logach powinny pojawić się `DBOS launched!`, `Listening to 3 queues` oraz
 sprawdzisz tak:
 
 ```bash
-curl -X POST localhost:8000/jobs/ping          # zwraca workflow_id
-curl localhost:8000/jobs/ping/<workflow_id>    # status SUCCESS
+curl -X POST localhost:8000/api/v1/jobs/ping          # zwraca workflow_id
+curl localhost:8000/api/v1/jobs/ping/<workflow_id>    # status SUCCESS
 ```
 
 Jeśli Postgres backendu działa na innym porcie (np. 5433), zmień
@@ -130,7 +130,7 @@ Wspólne zasady obu repozytoriów są w `deploy/CONVENTIONS.md` w repo backendu
   a job `contracts-check` w CI porównuje go z plikiem z drugiego repo.
 - Wersjonowanie. Każdy payload ma `contract_version`. Worker odrzuca
   wersję, której nie obsługuje, czytelnym błędem `ContractError`, a backend
-  pokazuje go w `GET /jobs/{id}`. Przy niezgodnej zmianie worker najpierw
+  pokazuje go w `GET /api/v1/jobs/{id}`. Przy niezgodnej zmianie worker najpierw
   przyjmuje starą i nową wersję, potem backend przełącza się na nową, a na
   końcu worker porzuca starą.
 - Dane. Schemat i migracje należą do backendu. Worker nie wykonuje DDL
@@ -143,8 +143,8 @@ Wspólne zasady obu repozytoriów są w `deploy/CONVENTIONS.md` w repo backendu
 - Idempotencja. Backend nadaje deterministyczne `workflow_id`, a kroki
   workera robią upsert (np. id embeddingu to UUIDv5 ze źródła, modelu i tekstu).
 - Heartbeat. Co 30 s worker zapisuje się w `worker_heartbeats`. Backend
-  pokazuje to w `/health` i nie przyjmuje zadań, gdy workera brakuje.
-- Smoke test. Po wdrożeniu worker woła `POST /jobs/ping` na API swojego
+  pokazuje to w `/api/v1/health` i nie przyjmuje zadań, gdy workera brakuje.
+- Smoke test. Po wdrożeniu worker woła `POST /api/v1/jobs/ping` na API swojego
   środowiska i czeka na `SUCCESS`. Brak wyniku oznacza nieudany deploy.
 - Wersja aplikacji i serializacja. `application_version` to nazwa
   środowiska (`main`, `develop`, slug gałęzi), stała po obu stronach, bo

@@ -26,9 +26,9 @@ containers and `tuttitrip-worker:*` images; never print env file contents.
    be one the worker registered (`default`, `local_llm`, `openrouter`).
 5. Health: `docker inspect -f '{{.State.Health.Status}}' tuttitrip-worker-<env>`;
    unhealthy = the main loop cannot query the DBOS system database.
-6. Smoke test by hand: `curl -X POST https://tuttitrip-api-<env>.gburek.app/jobs/ping`
-   then `curl https://tuttitrip-api-<env>.gburek.app/jobs/ping/<id>`
-   (main: `https://tuttitrip-api.gburek.app`). Backend `/health` shows the heartbeat.
+6. Smoke test by hand: `curl -X POST https://tuttitrip-api-<env>.gburek.app/api/v1/jobs/ping`
+   then `curl https://tuttitrip-api-<env>.gburek.app/api/v1/jobs/ping/<id>`
+   (main: `https://tuttitrip-api.gburek.app`). Backend `/api/v1/health` shows the heartbeat.
 7. Embeddings failing: the container must be on `ollama_net`
    (`docker inspect -f '{{json .NetworkSettings.Networks}}' ...`); the backend's
    fallback start does not attach it, a worker deploy does.

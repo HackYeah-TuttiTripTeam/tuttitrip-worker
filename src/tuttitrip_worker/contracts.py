@@ -173,7 +173,7 @@ class ContractError(ValueError):
     DBOS stores it as a portable error: ``name="ContractError"``, ``message``,
     ``code`` (an :class:`ErrorCode` value) and ``data``
     (:class:`ContractErrorData`). The backend shows ``message`` in
-    ``GET /jobs/{id}`` (``status=ERROR``).
+    ``GET /api/v1/jobs/{id}`` (``status=ERROR``).
     """
 
     def __init__(self, message: str, data: ContractErrorData) -> None:
