@@ -136,9 +136,6 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
    the GPU on dellpromaxgb10), `openrouter` (concurrency 8, at most 30 starts
    per 60 s across workers). A queue is polled only by the application that
    registered it (`tuttitrip-worker`).
-   Transitional: `LEGACY_QUEUES` also serves `system` and `planning`, the
-   names the backend mirror used before the rename; delete them once the
-   backend's `contracts/jobs.schema.json` lists the new queue names.
 9. **Shutdown and recovery.** SIGTERM/SIGINT stop the main loop;
    `DBOS.destroy(workflow_completion_timeout_sec=30)` lets running workflows
    finish, then the process exits (`--stop-timeout 40` on the container).
