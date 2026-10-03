@@ -57,6 +57,17 @@ fi
 
 # Dangling previous builds of our images (only ours: label filter).
 docker image prune -f --filter label=tuttitrip.role=worker >/dev/null 2>&1 || true
+
+# The read-only DBOS dashboard (https://tuttitrip-dbos.gburek.app) runs from
+# tuttitrip-worker:main. Its container belongs to the backend's admin stack
+# (tuttitrip-backend deploy/admin/); we only restart it on the new image.
+admin_compose="$TT_STATE_DIR/admin/compose.yaml"
+if [ "$env" = main ] && [ -f "$admin_compose" ]; then
+  TT_ADMIN_STATE="$TT_STATE_DIR/admin" docker compose -f "$admin_compose" \
+    --project-directory "$TT_STATE_DIR/admin" --profile dbos up -d --no-deps dbos-dashboard \
+    && tt_log "tuttitrip-dbos-dashboard restarted on $image" \
+    || tt_log "WARNING: could not restart tuttitrip-dbos-dashboard"
+fi
 flock -u 9
 
 if [ "$started" = 1 ]; then
