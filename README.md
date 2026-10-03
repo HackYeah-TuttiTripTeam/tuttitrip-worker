@@ -202,5 +202,8 @@ Ollama (`nomic-embed-text`), do której worker ma dostęp przez sieć `ollama_ne
   pozwala).
 - Gałęzie zakładamy od `develop`: `feature/<nazwa>`, `fix/<nazwa>`,
   `chore/<nazwa>`. PR idzie do `develop`, a wydanie to PR `develop` → `main`.
-- Gałęzie po merge'u usuwają się automatycznie.
+- Po merge'u gałąź usuwa workflow `Delete merged branch` i uruchamia
+  sprzątanie jej obrazu. `main` i `develop` nie są nigdy usuwane, więc PR
+  wydania idzie prosto z `develop`. Automatyczne usuwanie gałęzi w
+  ustawieniach GitHuba jest wyłączone, bo kasowało `develop` po wydaniu.
 - Zmiana kontraktu trafia najpierw tutaj, a potem do lustra w backendzie.
