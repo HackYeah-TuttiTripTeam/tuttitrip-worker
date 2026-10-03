@@ -9,6 +9,8 @@ from tuttitrip_worker.contracts import (
     GenerateTripPlanOutput,
     LlmProvider,
     Workflow,
+    WriteJustificationsInput,
+    not_implemented,
     parse_input,
 )
 from tuttitrip_worker.planning.agents import planner_agent
@@ -46,3 +48,17 @@ async def generate_trip_plan(payload: dict[str, Any]) -> dict[str, Any]:
         )
     await report_progress("done", 100)
     return output
+
+
+@DBOS.workflow(name=Workflow.WRITE_JUSTIFICATIONS.value, serialization_type=PORTABLE)
+def write_justifications(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stub of ``write_justifications``; replaced by its own issue.
+
+    Args:
+        payload: JSON object matching ``WriteJustificationsInput``.
+
+    Raises:
+        ContractError: Always, with code ``not_implemented``.
+    """
+    parse_input(WriteJustificationsInput, payload)
+    raise not_implemented(Workflow.WRITE_JUSTIFICATIONS)

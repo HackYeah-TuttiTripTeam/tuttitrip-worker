@@ -15,6 +15,8 @@ dependencies = [
     # slim + extras: OpenAI-compatible client (OpenRouter, Ollama, vLLM, SGLang)
     # and the DBOS durable-execution capability. No other provider SDKs.
     "pydantic-ai-slim[dbos,openai,openrouter]>=2.54.0",
+    # Harness capabilities (prompt-injection defender); pins slim to the same version.
+    "pydantic-ai-harness[prompt-injection-defender]==0.54.0",
     "pydantic-settings>=2.15.0",
     "sqlalchemy[asyncio]>=2.1.3",
 ]

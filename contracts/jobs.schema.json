@@ -84,6 +84,180 @@
       },
       "queue": "default"
     },
+    "extract_offer_evidence": {
+      "input": {
+        "properties": {
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          },
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "provider": {
+            "default": "openrouter",
+            "enum": [
+              "openrouter",
+              "local"
+            ],
+            "type": "string"
+          },
+          "requirement_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "trip_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trip_id",
+          "document_id",
+          "requirement_keys"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "RequirementEvidence": {
+            "properties": {
+              "confidence": {
+                "anyOf": [
+                  {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "quotes": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "requirement_key": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "verdict": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "present",
+                      "absent",
+                      "not_applicable"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "requirement_key"
+            ],
+            "type": "object"
+          }
+        },
+        "properties": {
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/$defs/RequirementEvidence"
+            },
+            "maxItems": 50,
+            "type": "array"
+          }
+        },
+        "required": [
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "queue": "openrouter"
+    },
+    "fetch_place_candidates": {
+      "input": {
+        "properties": {
+          "city_query": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "city_slug": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "city_slug": {
+            "type": "string"
+          },
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          },
+          "source": {
+            "const": "osm",
+            "default": "osm",
+            "type": "string"
+          },
+          "stored": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "city_slug",
+          "stored"
+        ],
+        "type": "object"
+      },
+      "queue": "default"
+    },
     "generate_trip_plan": {
       "input": {
         "properties": {
@@ -143,6 +317,289 @@
       },
       "queue": "openrouter"
     },
+    "parse_pasted_plan": {
+      "input": {
+        "properties": {
+          "city_slug": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          },
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "provider": {
+            "default": "openrouter",
+            "enum": [
+              "openrouter",
+              "local"
+            ],
+            "type": "string"
+          },
+          "trip_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trip_id",
+          "document_id",
+          "city_slug"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "MatchCandidate": {
+            "properties": {
+              "name": {
+                "maxLength": 200,
+                "type": "string"
+              },
+              "place_id": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "score": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "place_id",
+              "name",
+              "score"
+            ],
+            "type": "object"
+          },
+          "ParsedPlanItem": {
+            "properties": {
+              "address": {
+                "anyOf": [
+                  {
+                    "maxLength": 300,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "amount_minor": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "city": {
+                "anyOf": [
+                  {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "currency": {
+                "anyOf": [
+                  {
+                    "maxLength": 3,
+                    "minLength": 3,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "day": {
+                "maximum": 60,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "end_time": {
+                "anyOf": [
+                  {
+                    "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "index": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "place_name": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "quote": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "start_time": {
+                "anyOf": [
+                  {
+                    "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "transport": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "walk",
+                      "public_transport",
+                      "car",
+                      "taxi",
+                      "bike",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "index",
+              "day",
+              "place_name",
+              "quote"
+            ],
+            "type": "object"
+          },
+          "PlaceMatch": {
+            "properties": {
+              "candidates": {
+                "items": {
+                  "$ref": "#/$defs/MatchCandidate"
+                },
+                "maxItems": 9,
+                "type": "array"
+              },
+              "confidence": {
+                "anyOf": [
+                  {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "item_index": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "place_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "item_index"
+            ],
+            "type": "object"
+          },
+          "UnreadItem": {
+            "properties": {
+              "quote": {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              "reason": {
+                "enum": [
+                  "quote_not_in_text",
+                  "invalid_item"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "quote",
+              "reason"
+            ],
+            "type": "object"
+          }
+        },
+        "properties": {
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/$defs/ParsedPlanItem"
+            },
+            "maxItems": 300,
+            "type": "array"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/$defs/PlaceMatch"
+            },
+            "maxItems": 300,
+            "type": "array"
+          },
+          "unread": {
+            "items": {
+              "$ref": "#/$defs/UnreadItem"
+            },
+            "maxItems": 300,
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "queue": "openrouter"
+    },
     "ping": {
       "input": {
         "properties": {
@@ -180,6 +637,73 @@
         "type": "object"
       },
       "queue": "default"
+    },
+    "write_justifications": {
+      "input": {
+        "properties": {
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          },
+          "plan_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "provider": {
+            "default": "openrouter",
+            "enum": [
+              "openrouter",
+              "local"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "Justification": {
+            "properties": {
+              "plan_item_id": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 600,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "plan_item_id",
+              "text"
+            ],
+            "type": "object"
+          }
+        },
+        "properties": {
+          "contract_version": {
+            "default": 1,
+            "type": "integer"
+          },
+          "justifications": {
+            "items": {
+              "$ref": "#/$defs/Justification"
+            },
+            "maxItems": 300,
+            "type": "array"
+          }
+        },
+        "required": [
+          "justifications"
+        ],
+        "type": "object"
+      },
+      "queue": "openrouter"
     }
   }
 }

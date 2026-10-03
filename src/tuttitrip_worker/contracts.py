@@ -25,10 +25,10 @@ This module is pure: it imports only the standard library and Pydantic
 import json
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, Final, Literal, NamedTuple
+from typing import Any, Final, Literal, NamedTuple, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 APPLICATION_NAME: Final = "tuttitrip-worker"
 """DBOS application name: worker ``DBOSConfig["name"]`` and the backend
@@ -62,6 +62,10 @@ class Workflow(StrEnum):
     GENERATE_TRIP_PLAN = "generate_trip_plan"
     EMBED_TEXTS = "embed_texts"
     PING = "ping"
+    PARSE_PASTED_PLAN = "parse_pasted_plan"
+    EXTRACT_OFFER_EVIDENCE = "extract_offer_evidence"
+    FETCH_PLACE_CANDIDATES = "fetch_place_candidates"
+    WRITE_JUSTIFICATIONS = "write_justifications"
 
 
 class LlmProvider(StrEnum):
@@ -80,6 +84,7 @@ class ErrorCode(StrEnum):
 
     UNSUPPORTED_CONTRACT_VERSION = "unsupported_contract_version"
     INVALID_PAYLOAD = "invalid_payload"
+    NOT_IMPLEMENTED = "not_implemented"
 
 
 class ContractPayload(BaseModel):
@@ -146,6 +151,172 @@ class PingOutput(ContractPayload):
 
     message: str
     worker_app_version: str
+
+
+# --- parse_pasted_plan -------------------------------------------------------------
+
+TIME_PATTERN: Final = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
+"""24-hour ``HH:MM`` as it appears in the pasted text."""
+
+TransportMode = Literal["walk", "public_transport", "car", "taxi", "bike", "other"]
+
+
+class ParsedPlanItem(BaseModel):
+    """One item read from a pasted plan; ``quote`` is verbatim from the text.
+
+    Times and amounts are claims of the checked plan, not catalog data.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    index: int = Field(ge=0)
+    day: int = Field(ge=1, le=60)
+    start_time: str | None = Field(default=None, pattern=TIME_PATTERN)
+    end_time: str | None = Field(default=None, pattern=TIME_PATTERN)
+    place_name: str = Field(min_length=1, max_length=200)
+    address: str | None = Field(default=None, max_length=300)
+    city: str | None = Field(default=None, max_length=100)
+    amount_minor: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    transport: TransportMode | None = None
+    quote: str = Field(min_length=1, max_length=1000)
+
+
+class MatchCandidate(BaseModel):
+    """A catalog place proposed for a pasted item (pure code ranks them)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    place_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(max_length=200)
+    score: float = Field(ge=0, le=1)
+
+
+class PlaceMatch(BaseModel):
+    """Catalog match of one parsed item; ``place_id=None`` means unrecognized.
+
+    Filled by the matching step (``tuttitrip-worker#24``); until then
+    ``ParsePastedPlanOutput.matches`` is empty.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    item_index: int = Field(ge=0)
+    place_id: str | None = Field(default=None, max_length=100)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    candidates: list[MatchCandidate] = Field(default_factory=list, max_length=9)
+
+
+class UnreadItem(BaseModel):
+    """Text the parser could not turn into a valid item (no verbatim quote)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    quote: str = Field(max_length=1000)
+    reason: Literal["quote_not_in_text", "invalid_item"]
+
+
+class ParsePastedPlanInput(ContractPayload):
+    """Input of ``parse_pasted_plan``; the text is read from ``pasted_documents``."""
+
+    trip_id: UUID
+    document_id: UUID
+    city_slug: str = Field(min_length=1, max_length=100)
+    provider: ProviderName = "openrouter"
+
+
+class ParsePastedPlanOutput(ContractPayload):
+    """Output of ``parse_pasted_plan`` (also kept in ``job_results``)."""
+
+    items: list[ParsedPlanItem] = Field(max_length=300)
+    unread: list[UnreadItem] = Field(default_factory=list, max_length=300)
+    matches: list[PlaceMatch] = Field(default_factory=list, max_length=300)
+
+
+# --- extract_offer_evidence ----------------------------------------------------------
+
+OfferVerdict = Literal["present", "absent", "not_applicable"]
+"""What a quote says about a requirement. No quote means unconfirmed, which is
+decided by the backend, never by the worker."""
+
+
+class RequirementEvidence(BaseModel):
+    """Verbatim quotes of the offer for one requirement and their assessment."""
+
+    model_config = ConfigDict(frozen=True)
+
+    requirement_key: str = Field(min_length=1, max_length=100)
+    quotes: list[str] = Field(default_factory=list, max_length=10)
+    verdict: OfferVerdict | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class ExtractOfferEvidenceInput(ContractPayload):
+    """Input of ``extract_offer_evidence``; the offer is in ``pasted_documents``."""
+
+    trip_id: UUID
+    document_id: UUID
+    requirement_keys: list[str] = Field(min_length=1, max_length=50)
+    provider: ProviderName = "openrouter"
+
+
+class ExtractOfferEvidenceOutput(ContractPayload):
+    """Output of ``extract_offer_evidence``: one entry per requested key."""
+
+    evidence: list[RequirementEvidence] = Field(max_length=50)
+
+
+# --- fetch_place_candidates ---------------------------------------------------
+
+
+class FetchPlaceCandidatesInput(ContractPayload):
+    """Input of ``fetch_place_candidates``: open data (OSM) for one city.
+
+    Exactly one of ``city_query`` (free text) and ``city_slug`` is required.
+    """
+
+    city_query: str | None = Field(default=None, min_length=1, max_length=200)
+    city_slug: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def _exactly_one_city(self) -> Self:
+        if (self.city_query is None) == (self.city_slug is None):
+            msg = "exactly one of city_query and city_slug is required"
+            raise ValueError(msg)
+        return self
+
+
+class FetchPlaceCandidatesOutput(ContractPayload):
+    """Output of ``fetch_place_candidates`` (rows go to the places catalog)."""
+
+    city_slug: str
+    source: Literal["osm"] = "osm"
+    stored: int = Field(ge=0)
+
+
+# --- write_justifications -----------------------------------------------------
+
+
+class Justification(BaseModel):
+    """A short reason for one plan item, written only on the solver's request."""
+
+    model_config = ConfigDict(frozen=True)
+
+    plan_item_id: str = Field(min_length=1, max_length=100)
+    text: str = Field(min_length=1, max_length=600)
+
+
+class WriteJustificationsInput(ContractPayload):
+    """Input of ``write_justifications``; the plan is read by id."""
+
+    plan_id: UUID
+    provider: ProviderName = "openrouter"
+
+
+class WriteJustificationsOutput(ContractPayload):
+    """Output of ``write_justifications`` (also kept in ``job_results``)."""
+
+    justifications: list[Justification] = Field(max_length=300)
 
 
 # --- events and errors ---------------------------------------------------------------
@@ -228,6 +399,22 @@ def parse_input[T: ContractPayload](model: type[T], payload: object) -> T:
         raise ContractError(msg, data) from exc
 
 
+def not_implemented(workflow: Workflow) -> ContractError:
+    """Error of a workflow that is in the contract but has no implementation yet.
+
+    Args:
+        workflow: The stub workflow.
+
+    Returns:
+        A ``ContractError`` with code ``not_implemented``.
+    """
+    data = ContractErrorData(
+        code=ErrorCode.NOT_IMPLEMENTED,
+        supported_versions=sorted(SUPPORTED_CONTRACT_VERSIONS),
+    )
+    return ContractError(f"workflow {workflow.value} is not implemented yet", data)
+
+
 # --- registry -------------------------------------------------------------------
 
 
@@ -248,6 +435,20 @@ WORKFLOWS: Final[Mapping[Workflow, WorkflowSpec]] = {
         Queue.DEFAULT, EmbedTextsInput, EmbedTextsOutput
     ),
     Workflow.PING: WorkflowSpec(Queue.DEFAULT, PingInput, PingOutput),
+    # LLM workflows: enqueue on queue_for(provider), like generate_trip_plan.
+    Workflow.PARSE_PASTED_PLAN: WorkflowSpec(
+        Queue.OPENROUTER, ParsePastedPlanInput, ParsePastedPlanOutput
+    ),
+    Workflow.EXTRACT_OFFER_EVIDENCE: WorkflowSpec(
+        Queue.OPENROUTER, ExtractOfferEvidenceInput, ExtractOfferEvidenceOutput
+    ),
+    Workflow.WRITE_JUSTIFICATIONS: WorkflowSpec(
+        Queue.OPENROUTER, WriteJustificationsInput, WriteJustificationsOutput
+    ),
+    # Open data (OSM), no LLM.
+    Workflow.FETCH_PLACE_CANDIDATES: WorkflowSpec(
+        Queue.DEFAULT, FetchPlaceCandidatesInput, FetchPlaceCandidatesOutput
+    ),
 }
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {PROGRESS_EVENT: Progress}
