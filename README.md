@@ -98,6 +98,7 @@ src/tuttitrip_worker/
   shared/        config, dbos (kolejki), llm (OpenRouter, model lokalny), db
   system/        ping (smoke test) i heartbeat co 30 s
   planning/      trwały agent planujący (generate_trip_plan)
+  linter/        parse_pasted_plan: wklejony plan do pozycji z cytatem
   embeddings/    embed_texts → pgvector; logic/ to czysta logika
 ```
 
