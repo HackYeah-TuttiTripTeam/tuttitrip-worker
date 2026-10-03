@@ -74,7 +74,9 @@ endpointu zgodnego z OpenAI (`TUTTITRIP_LLM__LOCAL_*`).
 uv run ruff check .          # lint (select = ALL, preview)
 uv run ruff format --check . # formatowanie
 uv run ty check              # typy, tryb ścisły
-uv run pytest                # testy; Postgres ani sieć nie są potrzebne
+uv run pytest -m "not integration and not e2e"  # testy jednostkowe i architektury, to samo robi CI
+uv run pytest -m "integration or e2e"            # lokalnie przed PR: runtime DBOS na SQLite (CI ich nie uruchamia)
+uv run pytest                                    # wszystko; Postgres ani sieć nie są potrzebne
 ```
 
 Testy uruchamiają prawdziwy runtime DBOS na tymczasowym pliku SQLite i

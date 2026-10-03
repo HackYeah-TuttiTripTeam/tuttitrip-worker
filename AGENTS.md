@@ -32,8 +32,11 @@ uv run tuttitrip-worker                   # run the worker (needs Postgres, see 
 docker compose up --build                 # the worker in a container, on the backend's compose network
 uv run python scripts/export_contracts.py # regenerate contracts/jobs.schema.json
 
-# Must all pass before every commit (CI runs the same):
-uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest
+# Must all pass before every commit (this is all CI runs: lint, types, unit + architecture tests):
+uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest -m "not integration and not e2e"
+
+# Local only, before the PR is marked ready (CI does not run them; part of the smoke step):
+uv run pytest -m "integration or e2e"
 ```
 
 ## Layout: vertical slices
@@ -243,7 +246,10 @@ Pasted text is never in a payload; the workflow reads it from `pasted_documents`
 - pytest strict, warnings are errors. Tests never call real models
   (`models.ALLOW_MODEL_REQUESTS = False`) and never need Postgres: the `dbos`
   fixture launches DBOS on a throwaway SQLite file and the `client` fixture
-  enqueues through `DBOSClient` exactly like the backend. Steps that touch
+  enqueues through `DBOSClient` exactly like the backend. Every test that uses
+  either fixture is marked `integration` automatically (`tests/conftest.py`):
+  it launches a real DBOS runtime (about 3 s each) and runs locally, not on CI.
+  Use the marker `e2e` for tests against real services. Steps that touch
   Postgres are replaced with `monkeypatch` in workflow tests; their SQL is
   compiled and asserted separately.
 - Domain tests go in `tests/domains/`, shared infrastructure in `tests/shared/`.
@@ -307,6 +313,10 @@ innym w drogę i żeby każda funkcja przeszła ten sam proces. Dotyczą też lu
    zmienna ma wartość `true`). Użyj etykiety wyłącznie, gdy żywy podgląd jest niezbędny; w pozostałych
    przypadkach smoke test robisz lokalnie, a po merge'u sprawdzasz develop. Pominięty podgląd zostawia
    w podsumowaniu joba jedną linię "Preview disabled (PREVIEW_DEPLOYS=false); add label `preview` to deploy".
+   CI sprawdza tylko lint, typy, testy jednostkowe i architektury (`pytest -m "not integration and not e2e"`).
+   Testy z markerami `integration` i `e2e` (DBOS na SQLite, prawdziwe usługi) nie chodzą na CI, więc
+   przed oznaczeniem PR jako gotowego uruchom lokalnie `uv run pytest` (cały zestaw, albo osobno
+   `uv run pytest -m "integration or e2e"`) i wpisz wynik w komentarzu ze smoke testem.
    Przejdź scenariusz z kryteriów akceptacji issue:
    - lokalnie: backend (lokalny stos) i worker uruchomione razem (README); po merge'u to samo na develop,
    - tylko gdy podgląd jest niezbędny: etykieta `preview` na PR wdraża worker gałęzi,
@@ -362,7 +372,8 @@ Zgłoszenia (issues):
   - [ ] Given gotowy plan, When kliknę "Pobierz PDF", Then dostanę plik z planem dzień po dniu
 
   ### Definition of Done
-  - [ ] CI zielone (lint, typy, testy, testy architektury)
+  - [ ] CI zielone (lint, typy, testy jednostkowe, testy architektury)
+  - [ ] Lokalnie przeszły testy integracyjne i smoke test (`uv run pytest -m "integration or e2e"`)
   - [ ] PR zmergowany do `develop` i sprawdzony na wdrożeniu develop
 
   ### Obszar
