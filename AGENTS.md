@@ -389,7 +389,7 @@ Wydania:
 ## Git flow
 
 - `main` is production, `develop` is integration; both protected (PR + green
-  `checks`, no force-push, no deletion) where the GitHub plan allows it.
+  `lint` and `tests`, no force-push, no deletion) where the GitHub plan allows it.
 - Branch from `develop`: `feature/<short-name>`, `fix/<short-name>`,
   `chore/<short-name>`. PR into `develop`; release = PR `develop` -> `main`.
 - After a merge the `Delete merged branch` workflow
@@ -404,9 +404,13 @@ Wydania:
 
 ## Deployment
 
-Every push runs CI (`checks` and `contracts-check` on `[self-hosted, hackathon]`),
-then `deploy` on the runner installed on the host
-(`[self-hosted, tuttitrip-worker-deploy]`, in `~/tuttitrip-worker-runner`).
+Every push runs CI once (no `pull_request` run for the same commit): `lint` and
+`tests` in parallel on `[self-hosted, hackathon]`, `contracts-check` on a
+GitHub-hosted runner, then `deploy` on the runner installed on the host
+(`[self-hosted, tuttitrip-worker-deploy]`, in `~/tuttitrip-worker-runner`). A
+branch preview deploys without waiting for the checks; `main` and `develop` wait
+for `lint` and `tests`. A newer push cancels the unfinished checks of the same
+branch, never a deployment.
 
 | Branch | Image | Container | Backend env file |
 | --- | --- | --- | --- |
