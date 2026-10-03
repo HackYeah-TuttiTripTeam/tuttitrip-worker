@@ -21,6 +21,8 @@ Product rule: deterministic logic (solver, linter, pricing) never depends on
 an LLM, on DBOS or on the database. Agents only draft; pure code decides.
 The architecture tests enforce it.
 
+The worker does not compute the fairness algorithm ([docs/algorytm.md](docs/algorytm.md)); the backend runs it in `planning/**/logic` (decision D1), and the worker only produces its inputs (place candidates, parsed pasted plans and offers) and writes justifications from its results.
+
 ## Commands
 
 ```bash
