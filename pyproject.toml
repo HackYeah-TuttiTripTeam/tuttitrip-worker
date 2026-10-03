@@ -1,0 +1,125 @@
+[project]
+name = "tuttitrip-worker"
+version = "0.1.0"
+description = "Worker TuttiTrip (HackYeah): trwałe workflowy DBOS dla agentów, embeddingów i przeliczeń"
+readme = "README.md"
+authors = [
+    { name = "Cyprian Gburek", email = "cyprian@gburek.dev" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "dbos>=3.2.0",
+    "pgvector>=0.5.0",
+    "psycopg[binary]>=3.3.6",
+    "pydantic>=2.13.5",
+    # slim + extras: OpenAI-compatible client (OpenRouter, Ollama, vLLM, SGLang)
+    # and the DBOS durable-execution capability. No other provider SDKs.
+    "pydantic-ai-slim[dbos,openai,openrouter]>=2.54.0",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.1.3",
+]
+
+[project.scripts]
+tuttitrip-worker = "tuttitrip_worker.main:main"
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-archon>=0.0.7",
+    "ruff>=0.16.10",
+    "ty>=0.0.84",
+]
+
+# --------------------------------------------------------------------------- #
+# Ruff: lint + format
+# --------------------------------------------------------------------------- #
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+# Preview brings in pydoclint (DOC*) and other newer checks.
+preview = true
+select = ["ALL"]
+ignore = [
+    # No per-file copyright/license header policy in this project.
+    "CPY",
+    # COM812: conflicts with the formatter (it manages trailing commas).
+    "missing-trailing-comma",
+    # D203 (blank line before class docstring) conflicts with D211; we use D211.
+    "incorrect-blank-line-before-class",
+    # D213 (summary on the second line) conflicts with D212; we use D212.
+    "multi-line-summary-second-line",
+    # D105: magic methods (`__eq__`, `__repr__`, ...) are self-explanatory.
+    "undocumented-magic-method",
+    # D107: `__init__` is documented in the class docstring (google style).
+    "undocumented-public-init",
+    # DOC501: "Raises:" sections are optional: we do not require listing exceptions...
+    "docstring-missing-exception",
+    # DOC502: ...and we do not flag documented exceptions raised indirectly.
+    "docstring-extraneous-exception",
+    # TC001-TC003: Pydantic and DBOS read annotations at runtime, so imports used "only" in
+    # annotations must stay real imports (not inside TYPE_CHECKING).
+    "typing-only-first-party-import",
+    "typing-only-third-party-import",
+    "typing-only-standard-library-import",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "assert",    # assert is the whole point of pytest
+    "magic-value-comparison", # magic values are fine in test assertions
+    "D",       # test docstrings are optional
+    "DOC",     # ...and so are their Args/Returns sections
+    "import-private-name", # tests may reach into private helpers of the code under test
+    "private-member-access",  # ...and private attributes
+    "implicit-namespace-package",  # tests/ is a namespace for pytest, not a package to publish
+    "unused-async", # async fakes replace async steps without awaiting anything
+    "pytest-fixture-autouse", # settings isolation must apply to every test
+]
+"scripts/**/*.py" = [
+    "implicit-namespace-package", # standalone scripts, not a package
+    "print",   # scripts report with print()
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
+
+# --------------------------------------------------------------------------- #
+# ty: type checking (strict)
+# --------------------------------------------------------------------------- #
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.src]
+include = ["src", "tests", "scripts"]
+
+[tool.ty.rules]
+# Every rule (including ones that default to `warn` or `ignore`) is an error.
+all = "error"
+
+[tool.ty.terminal]
+# Non-zero exit code on any diagnostic, including warnings.
+error-on-warning = true
+
+# --------------------------------------------------------------------------- #
+# pytest
+# --------------------------------------------------------------------------- #
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+# Enables strict_config, strict_markers, strict_parametrization_ids, strict_xfail.
+strict = true
+addopts = ["-ra", "--import-mode=importlib"]
+filterwarnings = ["error"]

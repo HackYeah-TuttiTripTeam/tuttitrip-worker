@@ -1,0 +1,1 @@
+"""Typed settings (pydantic-settings)."""

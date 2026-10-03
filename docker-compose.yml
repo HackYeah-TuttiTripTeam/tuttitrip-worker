@@ -1,0 +1,33 @@
+# Local development: the worker in a container, attached to the backend's
+# compose stack (the backend owns Postgres, the schema and the migrations).
+#
+#   cd ../tuttitrip-backend && docker compose up -d db && uv run alembic upgrade head
+#   cd ../tuttitrip-worker  && docker compose up --build
+#
+# Or skip this file and run the worker on the host: `uv run tuttitrip-worker`
+# (defaults in .env.example point at localhost:5432).
+name: tuttitrip-worker
+
+services:
+  worker:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Container-to-container address of the backend's `db` service.
+      TUTTITRIP_DATABASE__HOST: db
+      TUTTITRIP_DATABASE__PORT: "5432"
+      # Ollama / SGLang running on the developer's machine.
+      TUTTITRIP_LLM__EMBEDDING_BASE_URL: http://host.docker.internal:11434/v1
+      TUTTITRIP_LLM__LOCAL_BASE_URL: http://host.docker.internal:30000/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stop_grace_period: 40s
+    networks: [backend]
+
+networks:
+  backend:
+    # Default network of the backend's compose project (`name: tuttitrip`).
+    name: tuttitrip_default
+    external: true
