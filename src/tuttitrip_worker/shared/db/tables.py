@@ -41,6 +41,17 @@ job_results = Table(
     Column("result", JSONB, nullable=False),
 )
 
+# Read-only for the worker (SELECT grant): texts pasted for a trip, kind
+# `plan` or `offer`.
+pasted_documents = Table(
+    "pasted_documents",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("trip_id", Uuid, nullable=False),
+    Column("kind", String(10), nullable=False),
+    Column("text", Text, nullable=False),
+)
+
 worker_heartbeats = Table(
     "worker_heartbeats",
     metadata,

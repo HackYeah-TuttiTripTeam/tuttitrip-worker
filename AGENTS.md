@@ -41,6 +41,7 @@ uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run
 ```text
 src/tuttitrip_worker/
   contracts.py         canonical job contract (names, payloads, version); pure
+  quotes.py            find_quote(): verbatim-quote check for any domain; pure
   main.py              composition root: WORKFLOWS, SCHEDULES, run() (launch + SIGTERM)
   healthcheck.py       Docker HEALTHCHECK (liveness file written by main)
   shared/              shared kernel, imports no domain
@@ -51,7 +52,7 @@ src/tuttitrip_worker/
   system/              ping (smoke test) + heartbeat schedule
   planning/            durable planner agent (generate_trip_plan), write_justifications
   linter/              parse_pasted_plan (stub until tuttitrip-worker#23)
-  accommodation/       extract_offer_evidence (stub until tuttitrip-worker#25)
+  accommodation/       extract_offer_evidence: Qwen quotes + decision-model verdicts
   places/              fetch_place_candidates (stub until tuttitrip-worker#26)
   embeddings/          embed_texts -> pgvector; logic/ = pure row building
 src/tuttitrip_dbos_dashboard/  read-only DBOS dashboard (not a worker domain), see below
@@ -81,7 +82,7 @@ Anything else in a domain directory fails `test_domain_contains_only_known_files
 1. `shared` never imports a domain (transitive).
 2. A domain never imports another domain, except its `schemas` (direct).
    Shared code goes to `shared/`.
-3. **Pure modules** = `tuttitrip_worker.contracts`, every `schemas.py` and every
+3. **Pure modules** = `tuttitrip_worker.contracts`, `tuttitrip_worker.quotes`, every `schemas.py` and every
    module in a `logic/` package. They must not reach `pydantic_ai`, `dbos`,
    `sqlalchemy`, `psycopg`, `pgvector`, `openai` or `httpx`, even
    transitively, nor `workflows`/`steps`/`agents`/`services`/`shared`/`main`.
@@ -191,7 +192,7 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
   old version. Use the `sync-contracts` skill.
 - **Data.** The backend owns the schema and migrations. The worker connects
   as role `tuttitrip_worker` (`TUTTITRIP_WORKER_DATABASE_URL`) with SELECT on
-  the domain tables it reads (`trips`, `profiles`) and write access only to
+  the domain tables it reads (`trips`, `profiles`, `pasted_documents`) and write access only to
   `embeddings`, `job_results`, `worker_heartbeats`. `shared/db/tables.py`
   maps their columns without DDL; `tests/test_no_ddl.py` forbids
   `create_all`/DDL. A new table = backend migration + `deploy/worker-grants.sql`
@@ -218,7 +219,7 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | `embed_texts` | `default` | `{contract_version, source_kind, source_id, texts}` | `{contract_version, model, dimensions, stored}` |
 | `ping` | `default` | `{contract_version, message}` | `{contract_version, message, worker_app_version}` |
 | `parse_pasted_plan` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, city_slug, provider}` | `{contract_version, items, unread, matches}` |
-| `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence}` |
+| `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence: [{requirement_key, quotes: [{text, verdict?, confidence?}]}]}`; `quotes == []` = silent offer, `verdict` null = judge unavailable |
 | `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored}` |
 | `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, locale, provider}` | `{contract_version, justifications}` |
 

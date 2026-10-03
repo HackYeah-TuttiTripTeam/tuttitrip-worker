@@ -32,11 +32,6 @@ STUBS: dict[Workflow, dict[str, Any]] = {
         "document_id": str(uuid4()),
         "city_slug": "krakow",
     },
-    Workflow.EXTRACT_OFFER_EVIDENCE: {
-        "trip_id": str(uuid4()),
-        "document_id": str(uuid4()),
-        "requirement_keys": ["pool", "parking"],
-    },
     Workflow.FETCH_PLACE_CANDIDATES: {"city_slug": "krakow"},
     Workflow.WRITE_JUSTIFICATIONS: {"plan_id": str(uuid4())},
 }

@@ -27,7 +27,11 @@ IO_FRAMEWORKS = (
     "openai",
     "httpx",
 )
-PURE = (rf"^{PACKAGE}\.contracts$", r"\.schemas$", r"\.logic(\.|$)")
+PURE = (
+    rf"^{PACKAGE}\.(contracts|quotes)$",
+    r"\.schemas$",
+    r"\.logic(\.|$)",
+)
 
 
 def _tree(name: str) -> tuple[str, str]:
