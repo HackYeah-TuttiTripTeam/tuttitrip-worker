@@ -49,6 +49,7 @@ src/tuttitrip_worker/
   system/              ping (smoke test) + heartbeat schedule
   planning/            durable planner agent (generate_trip_plan)
   embeddings/          embed_texts -> pgvector; logic/ = pure row building
+src/tuttitrip_dbos_dashboard/  read-only DBOS dashboard (not a worker domain), see below
 contracts/jobs.schema.json   rendered contract, compared with the backend mirror
 deploy/                host deployment scripts (bash)
 scripts/               export_contracts.py
@@ -354,6 +355,35 @@ removes the worker container when the backend env itself goes away.
 `~/tuttitrip/worker.env` (mode 600) is created by the first deploy with host
 defaults; existing keys are never overwritten, so hand edits survive.
 `OPENROUTER_API_KEY` comes from the GitHub secret of the same name.
+
+## DBOS dashboard (`tuttitrip_dbos_dashboard`)
+
+There is no DBOS Conductor or Console here. Self-hosted Conductor is under a
+proprietary license: a trial key is only for development and evaluation,
+production needs a paid license, and the free key accepts one executor per
+application, while we run main and develop under the same application name.
+Instead, a small read-only dashboard ships in this repository and image.
+
+- https://tuttitrip-dbos.gburek.app shows the queues with their backlog, the
+  newest workflows (filters for status, name and limit) and the steps and
+  error of a single workflow, for main and develop.
+- It is stdlib `http.server` plus the official `DBOSClient` (`list_workflows`,
+  `list_queued_workflows`, `list_queues`, `list_workflow_steps`). It never
+  loads inputs or outputs and never writes; DBOSClient runs no migrations.
+- Login: the backend's admin stack (`deploy/admin/` in tuttitrip-backend) puts
+  it behind nginx `auth_request` + oauth2-proxy (Auth0, superadmin
+  allow-list). It is reachable only on the private `tuttitrip-admin` network.
+- It connects as role `tuttitrip_readonly`
+  (`TUTTITRIP_DBOS_DASHBOARD_DATABASES=main=postgresql://...,develop=...`,
+  written by the backend's `deploy/admin/setup.sh`). The URLs are never
+  rendered or logged.
+- It is a separate top-level package, so the worker's architecture rules do
+  not apply to it. It may import `dbos` and must stay read-only. Its tests are
+  in `tests/dashboard/`, including a round trip through a real DBOS on SQLite.
+- Deploy: entry point `tuttitrip-dbos-dashboard` in `tuttitrip-worker:main`,
+  container `tuttitrip-dbos-dashboard` (compose project `tuttitrip-admin`).
+  After building main, `deploy/deploy.sh` restarts it on the new image when
+  `~/tuttitrip/admin/compose.yaml` exists.
 
 ## Powiadomienia (Discord)
 

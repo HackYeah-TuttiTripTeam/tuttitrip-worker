@@ -11,14 +11,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 env=${1:?usage: smoke.sh <env>}
 api=$(tt_api_url "$env")
 
-# Rollout of the versioned API: try /api/v1 first, then the unversioned paths of
-# a backend that is not on /api/v1 yet. TODO: drop the fallback once backend
-# main and develop serve /api/v1 only.
-code=404
-for base in "$api/api/v1" "$api"; do
-  code=$(curl -sS -o /tmp/tt-smoke.$$ -w '%{http_code}' -X POST "$base/jobs/ping" || true)
-  [ "$code" != 404 ] && break
-done
+base="$api/api/v1"
+code=$(curl -sS -o /tmp/tt-smoke.$$ -w '%{http_code}' -X POST "$base/jobs/ping" || true)
 body=$(cat /tmp/tt-smoke.$$ 2>/dev/null || true); rm -f /tmp/tt-smoke.$$
 if [ "$code" = 404 ]; then
   tt_log "WARNING: $api has no /api/v1/jobs/ping (older backend); smoke test skipped"
