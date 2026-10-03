@@ -21,7 +21,9 @@ Wire format:
 Compatible changes since version 1 (no version bump, the JSON schema is
 unchanged or only grows): ``ErrorCode.DOCUMENT_NOT_FOUND`` (code of the error
 of a workflow whose pasted document does not exist; the backend maps it in
-tuttitrip-backend#142).
+tuttitrip-backend#142) and ``ErrorCode.MODEL_OUTPUT_INVALID`` (the model never
+produced a valid structured answer, for example ``parse_pasted_plan`` after the
+last retry; the backend maps it like the others).
 
 This module is pure: it imports only the standard library and Pydantic
 (enforced by ``tests/architecture``).
@@ -99,6 +101,7 @@ class ErrorCode(StrEnum):
     INVALID_PAYLOAD = "invalid_payload"
     NOT_IMPLEMENTED = "not_implemented"
     DOCUMENT_NOT_FOUND = "document_not_found"
+    MODEL_OUTPUT_INVALID = "model_output_invalid"
 
 
 class ContractPayload(BaseModel):
@@ -536,6 +539,24 @@ def document_not_found(document_id: UUID, kind: str) -> ContractError:
         supported_versions=sorted(SUPPORTED_CONTRACT_VERSIONS),
     )
     return ContractError(f"no {kind} document {document_id} for this trip", data)
+
+
+def model_output_invalid(workflow: Workflow) -> ContractError:
+    """Error of an LLM workflow whose model gave no valid structured output.
+
+    Args:
+        workflow: The workflow that asked the model.
+
+    Returns:
+        A ``ContractError`` with code ``model_output_invalid``.
+    """
+    data = ContractErrorData(
+        code=ErrorCode.MODEL_OUTPUT_INVALID,
+        supported_versions=sorted(SUPPORTED_CONTRACT_VERSIONS),
+    )
+    return ContractError(
+        f"the model returned no valid answer for {workflow.value}", data
+    )
 
 
 def not_implemented(workflow: Workflow) -> ContractError:

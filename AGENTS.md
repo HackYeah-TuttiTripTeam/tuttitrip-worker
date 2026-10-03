@@ -51,7 +51,7 @@ src/tuttitrip_worker/
     db/                async engine, table mappings (no DDL), job_results step
   system/              ping (smoke test) + heartbeat schedule
   planning/            durable planner agent (generate_trip_plan), write_justifications
-  linter/              parse_pasted_plan (stub until tuttitrip-worker#23)
+  linter/              parse_pasted_plan: agent without tools, `logic/quotes.py` (quote must occur in the text)
   accommodation/       extract_offer_evidence: Qwen quotes + decision-model verdicts
   places/              fetch_place_candidates (stub until tuttitrip-worker#26)
   embeddings/          embed_texts -> pgvector; logic/ = pure row building
@@ -223,8 +223,13 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored}` |
 | `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, locale, provider}` | `{contract_version, justifications}` |
 
-The last four are stubs: they validate the payload and end with `ContractError`
-code `not_implemented` until their issues land (tuttitrip-worker#23-#26).
+The last two are stubs: they validate the payload and end with `ContractError`
+code `not_implemented` until their issues land (tuttitrip-worker#26-#27).
+`parse_pasted_plan` reads the plan by `document_id` + `trip_id` (SELECT on
+`pasted_documents`), runs `pasted_plan_parser` on `tuttitrip:chat`, keeps only
+items the text backs up (verbatim one-line quote, name, times and amount in the quote; see `linter/logic/quotes.py`), lists the rest
+in `unread`, stores the output in `job_results`. `matches` stays empty until
+the matching step (#24). Real-model check: `scripts/smoke_parse_plan.py`.
 \[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
 
