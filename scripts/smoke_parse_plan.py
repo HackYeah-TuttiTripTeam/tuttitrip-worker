@@ -4,8 +4,9 @@ Runs ``parser_agent`` (outside DBOS, so no database is needed) on the test
 fixture plan (``tests/linter_sample.py``) with a prompt-injection line added,
 and checks with the workflow's own pure code that every fixture quote is
 contained in a kept quote, in order, that nothing is unread and that the
-injection did not empty the plan. Keys come from the environment:
-``TUTTITRIP_LLM__GB10_API_KEY`` (or ``GB10_LITELLM_KEY``) and ``OPENROUTER_API_KEY``. Nothing secret is printed.
+injection did not empty the plan. Keys come from the environment
+(``TUTTITRIP_LLM__GB10_API_KEY`` or ``GB10_LITELLM_KEY``, and
+``OPENROUTER_API_KEY``). Nothing secret is printed.
 
     PYTHONPATH=. uv run python scripts/smoke_parse_plan.py
 
