@@ -18,10 +18,12 @@ from tuttitrip_worker.accommodation.workflows import extract_offer_evidence
 from tuttitrip_worker.contracts import (
     APPLICATION_NAME,
     CONTRACT_VERSION,
+    SCHEDULE_TIMEZONE,
     SCHEDULED_WORKFLOWS,
     Queue,
     Workflow,
 )
+from tuttitrip_worker.demo.workflows import reset_demo_account
 from tuttitrip_worker.embeddings.workflows import embed_texts
 from tuttitrip_worker.healthcheck import LIVENESS_FILE, LIVENESS_INTERVAL_SEC
 from tuttitrip_worker.linter.workflows import parse_pasted_plan
@@ -44,7 +46,10 @@ WORKFLOWS: Final[Mapping[Workflow, Callable[..., Any]]] = {
 }
 """Every contract workflow and the function registered under its name."""
 
-SCHEDULES: Final[Mapping[str, Callable[..., Any]]] = {"heartbeat": heartbeat}
+SCHEDULES: Final[Mapping[str, Callable[..., Any]]] = {
+    "heartbeat": heartbeat,
+    "reset_demo_account": reset_demo_account,
+}
 """Every scheduled workflow (cron in ``contracts.SCHEDULED_WORKFLOWS``)."""
 
 
@@ -56,6 +61,7 @@ def apply_schedules() -> None:
                 "schedule_name": name,
                 "workflow_fn": workflow,
                 "schedule": SCHEDULED_WORKFLOWS[name],
+                "cron_timezone": SCHEDULE_TIMEZONE,
             }
             for name, workflow in SCHEDULES.items()
         ]
