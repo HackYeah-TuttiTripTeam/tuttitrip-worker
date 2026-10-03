@@ -135,7 +135,10 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
    ping, embeddings, enrichment, recomputation), `local_llm` (concurrency 2:
    the GPU on dellpromaxgb10), `openrouter` (concurrency 8, at most 30 starts
    per 60 s across workers). A queue is polled only by the application that
-   registered it (`tuttitrip-worker`).
+   registered it (`tuttitrip-worker`). Queues live in the system database
+   (`dbos.queues`), so a name removed from `Queue` keeps being polled until
+   its row is gone: `register_queues()` deletes this application's queues
+   that are not in the contract, unless they still hold queued work.
 9. **Shutdown and recovery.** SIGTERM/SIGINT stop the main loop;
    `DBOS.destroy(workflow_completion_timeout_sec=30)` lets running workflows
    finish, then the process exits (`--stop-timeout 40` on the container).
