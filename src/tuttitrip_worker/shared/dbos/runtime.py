@@ -48,6 +48,17 @@ QUEUE_LIMITS: Final[Mapping[Queue, QueueLimits]] = {
 }
 
 
+LEGACY_QUEUES: Final[Mapping[str, QueueLimits]] = {
+    # Transitional (contract v1 rename): the backend mirror still enqueues
+    # `ping` on `system` and `generate_trip_plan` on `planning`. The worker
+    # serves the old and the new names until the backend's
+    # contracts/jobs.schema.json lists default/local_llm/openrouter; then
+    # delete this mapping (AGENTS.md, "Incompatible change procedure").
+    "system": QUEUE_LIMITS[Queue.DEFAULT],
+    "planning": QUEUE_LIMITS[Queue.OPENROUTER],
+}
+
+
 def build_config(settings: Settings) -> DBOSConfig:
     """DBOS configuration for this worker.
 
@@ -77,12 +88,20 @@ def init_dbos(settings: Settings) -> None:
     DBOS(config=build_config(settings))
 
 
+def all_queues() -> dict[str, QueueLimits]:
+    """Every queue this worker listens on: contract queues plus legacy names.
+
+    Returns:
+        Queue name -> limits.
+    """
+    return {queue.value: QUEUE_LIMITS[queue] for queue in Queue} | dict(LEGACY_QUEUES)
+
+
 def register_queues() -> None:
-    """Register (or update) every contract queue with its limits."""
-    for queue in Queue:
-        limits = QUEUE_LIMITS[queue]
+    """Register (or update) every queue with its limits."""
+    for name, limits in all_queues().items():
         DBOS.register_queue(
-            queue.value,
+            name,
             worker_concurrency=limits.worker_concurrency,
             limiter=limits.limiter,
             on_conflict="always_update",

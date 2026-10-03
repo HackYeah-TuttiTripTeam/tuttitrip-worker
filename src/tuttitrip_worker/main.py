@@ -18,14 +18,17 @@ from tuttitrip_worker.contracts import (
     APPLICATION_NAME,
     CONTRACT_VERSION,
     SCHEDULED_WORKFLOWS,
-    Queue,
     Workflow,
 )
 from tuttitrip_worker.embeddings.workflows import embed_texts
 from tuttitrip_worker.healthcheck import LIVENESS_FILE, LIVENESS_INTERVAL_SEC
 from tuttitrip_worker.planning.workflows import generate_trip_plan
 from tuttitrip_worker.shared.config.settings import get_settings
-from tuttitrip_worker.shared.dbos.runtime import init_dbos, register_queues
+from tuttitrip_worker.shared.dbos.runtime import (
+    all_queues,
+    init_dbos,
+    register_queues,
+)
 from tuttitrip_worker.system.workflows import heartbeat, ping
 
 logger = logging.getLogger(APPLICATION_NAME)
@@ -82,7 +85,7 @@ def run() -> None:
         settings.environment,
         settings.application_version,
         CONTRACT_VERSION,
-        ",".join(queue.value for queue in Queue),
+        ",".join(all_queues()),
     )
 
     stop = threading.Event()
