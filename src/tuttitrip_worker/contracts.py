@@ -18,6 +18,11 @@ Wire format:
   does not support with :class:`ContractError` (``code`` + ``data``), which
   DBOS stores as a portable error (``name``, ``message``, ``code``, ``data``).
 
+Compatible changes since version 1 (no version bump, the JSON schema is
+unchanged or only grows): ``ErrorCode.DOCUMENT_NOT_FOUND`` (code of the error
+of a workflow whose pasted document does not exist; the backend maps it in
+tuttitrip-backend#142).
+
 This module is pure: it imports only the standard library and Pydantic
 (enforced by ``tests/architecture``).
 """
@@ -292,7 +297,13 @@ decided by the backend, never by the worker."""
 
 
 class EvidenceQuote(BaseModel):
-    """One verbatim quote of the offer and what it says about the requirement."""
+    """One verbatim quote of the offer and what it says about the requirement.
+
+    ``verdict`` and ``confidence`` are ``None`` when the judge (decision model)
+    was unavailable; ``confidence`` is also ``None`` when a language-model
+    fallback answered. Confidence is the decision model's margin from its
+    threshold scaled to 0..1, not a probability.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -302,7 +313,12 @@ class EvidenceQuote(BaseModel):
 
 
 class RequirementEvidence(BaseModel):
-    """Quotes of the offer for one requirement, each with its own assessment."""
+    """Quotes of the offer for one requirement, each with its own assessment.
+
+    ``quotes == []`` means the offer is silent about it (the backend calls it
+    unconfirmed). Quotes of one key may disagree (``present`` and ``absent``);
+    the worker does not aggregate, the backend shows such a key as conflicting.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -346,7 +362,12 @@ class ExtractOfferEvidenceInput(ContractPayload):
 
 
 class ExtractOfferEvidenceOutput(ContractPayload):
-    """Output of ``extract_offer_evidence``: one entry per requested key."""
+    """Output of ``extract_offer_evidence``: one entry per requested key.
+
+    Keys without a text signal (platform, distance to attractions) should not
+    be requested; the backend decides them. Keys whose meaning is not obvious
+    need a label in ``requirements``.
+    """
 
     evidence: list[RequirementEvidence] = Field(max_length=50)
 

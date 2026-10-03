@@ -9,11 +9,7 @@ from collections.abc import Mapping, Sequence
 from typing import Final
 
 from tuttitrip_worker.accommodation.schemas import ExtractedQuotes
-from tuttitrip_worker.contracts import (
-    EvidenceQuote,
-    OfferVerdict,
-    RequirementEvidence,
-)
+from tuttitrip_worker.contracts import EvidenceQuote, RequirementEvidence
 from tuttitrip_worker.quotes import find_quote
 
 MAX_QUOTES_PER_KEY: Final = 3
@@ -22,8 +18,9 @@ MAX_QUOTES_PER_KEY: Final = 3
 MAX_QUOTE_CHARS: Final = 1000
 """Longest quote accepted; the contract caps ``EvidenceQuote.text`` the same."""
 
-type Assessment = tuple[OfferVerdict | None, float | None]
-"""Verdict of the judge and its confidence (``None`` when it reported none)."""
+type Assessment = tuple[str, float | None]
+"""Verdict value (one of ``OfferVerdict``) and the confidence the judge reported
+(``None`` when it reported none)."""
 
 
 def verified_quotes(
@@ -63,10 +60,11 @@ def build_evidence(
     """Assemble the contract output, one entry per requested key.
 
     Args:
-        keys: Requested requirement keys, in output order.
+        keys: Requested requirement keys, in output order (unique: the input
+            model guarantees it).
         quotes: Verified quotes per key (:func:`verified_quotes`).
         assessments: Judge result per ``(key, quote)``; a missing pair means
-            no assessment (judge unavailable).
+            the judge was unavailable.
 
     Returns:
         ``RequirementEvidence`` for every key; quotes without an assessment
@@ -75,10 +73,13 @@ def build_evidence(
     evidence: list[RequirementEvidence] = []
     for key in keys:
         items: list[EvidenceQuote] = []
-        for text in quotes.get(key, ()):
-            verdict, confidence = assessments.get((key, text), (None, None))
+        for text in quotes[key]:
+            found = assessments.get((key, text))
+            verdict, confidence = found or (None, None)
             items.append(
-                EvidenceQuote(text=text, verdict=verdict, confidence=confidence)
+                EvidenceQuote.model_validate(
+                    {"text": text, "verdict": verdict, "confidence": confidence}
+                )
             )
         evidence.append(RequirementEvidence(requirement_key=key, quotes=items))
     return evidence

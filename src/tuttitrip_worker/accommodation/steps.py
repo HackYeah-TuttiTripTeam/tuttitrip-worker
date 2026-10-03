@@ -30,17 +30,20 @@ def offer_query(document_id: UUID, trip_id: UUID) -> Select[Any]:
 
 
 @DBOS.step(retries_allowed=True, max_attempts=3)
-async def load_offer_text(document_id: UUID, trip_id: UUID) -> str | None:
+async def load_offer_text(document_id: str, trip_id: str) -> str | None:
     """Read the pasted offer (the worker has SELECT on ``pasted_documents`` only).
 
+    Ids are strings because step arguments of a portable workflow are JSON.
+
     Args:
-        document_id: Id of the pasted document.
-        trip_id: Trip it must belong to.
+        document_id: Id of the pasted document (UUID text).
+        trip_id: Trip it must belong to (UUID text).
 
     Returns:
         The offer text, or ``None`` when there is no such offer for the trip.
     """
+    query = offer_query(UUID(document_id), UUID(trip_id))
     async with transaction() as connection:
-        result = await connection.execute(offer_query(document_id, trip_id))
+        result = await connection.execute(query)
         text = result.scalar_one_or_none()
         return None if text is None else str(text)
