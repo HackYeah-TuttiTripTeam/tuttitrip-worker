@@ -34,6 +34,20 @@ class LlmSettings(BaseModel):
     # OpenRouter. Empty key = fall back to the standard OPENROUTER_API_KEY.
     openrouter_api_key: SecretStr = SecretStr("")
     openrouter_model: str = "google/gemini-3.8-flash"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # JEV decision model (`tuttitrip:decide-cloud`), served through OpenRouter.
+    jev_model: str = "typesafe/jev-1.13"
+    # GB10 (dellpromaxgb10) behind LiteLLM: Qwen (OpenAI-compatible) and the
+    # decision models basal and Laya. Empty key = the GB10 models are skipped;
+    # the model is left out of its chain.
+    gb10_base_url: str = "https://llm.gburek.app/v1"
+    gb10_api_key: SecretStr = SecretStr("")
+    gb10_agent_model: str = "qwen3.8-27b"
+    gb10_chat_model: str = "qwen3.8-27b-chat"
+    basal_base_url: str = "https://llm.gburek.app/basal/v1"
+    basal_model: str = "basal"
+    laya_base_url: str = "https://llm.gburek.app/laya/v1"
+    laya_model: str = "laya"
     # Local OpenAI-compatible chat endpoint (SGLang/vLLM/Ollama on the GPU host).
     local_base_url: str = "http://localhost:30000/v1"
     local_api_key: SecretStr = SecretStr("local")
