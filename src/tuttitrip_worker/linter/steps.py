@@ -1,6 +1,6 @@
 """I/O steps of the linter domain (database reads)."""
 
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from dbos import DBOS
@@ -8,6 +8,8 @@ from sqlalchemy import Select, select
 
 from tuttitrip_worker.shared.db.engine import transaction
 from tuttitrip_worker.shared.db.tables import pasted_documents
+
+PLAN_KIND: Final = "plan"
 
 
 def build_document_select(document_id: UUID, trip_id: UUID) -> Select[Any]:
@@ -26,7 +28,7 @@ def build_document_select(document_id: UUID, trip_id: UUID) -> Select[Any]:
     return select(pasted_documents.c.text).where(
         pasted_documents.c.id == document_id,
         pasted_documents.c.trip_id == trip_id,
-        pasted_documents.c.kind == "plan",
+        pasted_documents.c.kind == PLAN_KIND,
     )
 
 
@@ -43,5 +45,5 @@ async def load_pasted_plan(document_id: str, trip_id: str) -> str | None:
     """
     statement = build_document_select(UUID(document_id), UUID(trip_id))
     async with transaction() as connection:
-        row = (await connection.execute(statement)).one_or_none()
-    return None if row is None else str(row.text)
+        text = (await connection.execute(statement)).scalar_one_or_none()
+    return None if text is None else str(text)

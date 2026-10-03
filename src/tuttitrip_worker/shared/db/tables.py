@@ -1,11 +1,10 @@
-"""Read/write mappings of the tables the worker uses (no DDL, ever).
+"""Read/write mappings of the tables the worker writes (no DDL, ever).
 
 The backend owns the schema: its Alembic migrations create these tables
 (``migrations/versions/*_worker_shared_tables_and_embeddings.py`` in
 ``tuttitrip-backend``) and ``deploy/worker-grants.sql`` there gives the role
-``tuttitrip_worker`` SELECT on what it reads (``pasted_documents``) and
-SELECT/INSERT/UPDATE/DELETE on ``embeddings``, ``job_results`` and
-``worker_heartbeats`` only. The worker never calls ``create_all``, never runs
+``tuttitrip_worker`` SELECT on what it reads and SELECT/INSERT/UPDATE/DELETE
+on these three tables only. The worker never calls ``create_all``, never runs
 migrations and never issues DDL (``tests/test_no_ddl.py``).
 
 The definitions only describe columns for SQLAlchemy Core statements. Keep
@@ -62,14 +61,4 @@ worker_heartbeats = Table(
     Column("min_contract_version", Integer, nullable=False),
     Column("app_version", String(200), nullable=False),
     Column("last_seen", DateTime(timezone=True), nullable=False),
-)
-
-# Read-only (SELECT grant): texts the host pasted, read by id.
-pasted_documents = Table(
-    "pasted_documents",
-    metadata,
-    Column("id", Uuid, primary_key=True),
-    Column("trip_id", Uuid, nullable=False),
-    Column("kind", String(10), nullable=False),
-    Column("text", Text, nullable=False),
 )
