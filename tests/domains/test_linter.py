@@ -19,11 +19,10 @@ from tuttitrip_worker.contracts import (
 from tuttitrip_worker.linter import steps
 from tuttitrip_worker.linter.logic.quotes import (
     missing_quotes,
-    normalize_whitespace,
-    quote_in_text,
     split_items,
 )
 from tuttitrip_worker.linter.schemas import DraftPlanItem
+from tuttitrip_worker.quotes import find_quote
 from tuttitrip_worker.shared.config.settings import Settings
 from tuttitrip_worker.shared.db import job_results
 from tuttitrip_worker.shared.llm.models import catalog
@@ -93,12 +92,12 @@ def draft(quote: str, name: str = "x", start_time: str | None = None) -> DraftPl
 # --- pure logic ----------------------------------------------------------------
 
 
-def test_whitespace_is_collapsed_but_nothing_else_is_normalized() -> None:
-    assert normalize_whitespace(" a \n\t b\u00a0c ") == "a b c"
-    assert quote_in_text("12:30 Obiad w Pod Wawelem (ok.", PLAN)  # across a line break
-    assert not quote_in_text("12:30 obiad w pod wawelem", PLAN)  # case matters
-    assert not quote_in_text("Zamek Królewski w Warszawie", PLAN)
-    assert not quote_in_text("   ", PLAN)  # blank is a substring of everything
+def test_find_quote_returns_the_exact_span_across_line_breaks() -> None:
+    span = find_quote(PLAN, "12:30 Obiad w Pod Wawelem (ok.")
+    assert span is not None
+    assert span in PLAN
+    assert find_quote(PLAN, "12:30 obiad w pod wawelem") is None  # case matters
+    assert find_quote(PLAN, "   ") is None
 
 
 def test_missing_quotes_lists_only_the_absent_ones() -> None:
@@ -214,7 +213,7 @@ def test_every_item_is_read_and_every_quote_is_in_the_text(
         "Kopiec Kościuszki",
     ]
     assert [i.index for i in output.items] == [0, 1, 2, 3]
-    assert all(quote_in_text(i.quote, PLAN) for i in output.items)
+    assert all(find_quote(PLAN, i.quote) is not None for i in output.items)
     first = output.items[0]
     assert (first.start_time, first.amount_minor, first.currency) == (
         "09:00",
@@ -257,7 +256,7 @@ def test_retries_run_out_and_the_invented_item_goes_to_unread(
 
     assert len(env.prompts) == 3  # first try plus two retries
     assert len(output.items) == 4
-    assert all(quote_in_text(i.quote, PLAN) for i in output.items)
+    assert all(find_quote(PLAN, i.quote) is not None for i in output.items)
     assert [(u.quote, u.reason) for u in output.unread] == [
         ("Rejs po Wiśle o 14:00", "quote_not_in_text")
     ]

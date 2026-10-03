@@ -1,7 +1,7 @@
 """Quote checks: a parsed item is only trusted if its quote is in the text.
 
 The model may only read. Each item carries a verbatim quote; an item whose
-quote is not a substring of the pasted text (after collapsing white space) was
+quote is not a substring of the pasted text (up to white space) was
 invented or garbled and goes to the ``unread`` list instead of the result.
 Pure: no model, no I/O.
 """
@@ -13,38 +13,10 @@ from pydantic import ValidationError
 
 from tuttitrip_worker.contracts import ParsedPlanItem, UnreadItem
 from tuttitrip_worker.linter.schemas import DraftPlanItem
+from tuttitrip_worker.quotes import find_quote
 
 QUOTE_MAX_CHARS = 1000
 """Longest quote the contract keeps (``UnreadItem.quote``)."""
-
-
-def normalize_whitespace(text: str) -> str:
-    """Collapse every run of white space (newlines, tabs, nbsp) to one space.
-
-    Args:
-        text: Pasted text or a quote.
-
-    Returns:
-        The text with single spaces and no leading or trailing white space.
-    """
-    return " ".join(text.split())
-
-
-def quote_in_text(quote: str, text: str) -> bool:
-    """Whether the quote occurs in the text, ignoring white-space differences.
-
-    Letters, case and punctuation must match exactly. A blank quote never
-    matches (it would be a substring of everything).
-
-    Args:
-        quote: Quote returned by the model.
-        text: The pasted text.
-
-    Returns:
-        ``True`` when the normalized quote is a substring of the normalized text.
-    """
-    needle = normalize_whitespace(quote)
-    return bool(needle) and needle in normalize_whitespace(text)
 
 
 def missing_quotes(items: Sequence[DraftPlanItem], text: str) -> list[str]:
@@ -57,7 +29,7 @@ def missing_quotes(items: Sequence[DraftPlanItem], text: str) -> list[str]:
     Returns:
         The offending quotes in item order (used to tell the model what to fix).
     """
-    return [item.quote for item in items if not quote_in_text(item.quote, text)]
+    return [item.quote for item in items if find_quote(text, item.quote) is None]
 
 
 def split_items(
@@ -65,8 +37,7 @@ def split_items(
 ) -> tuple[list[ParsedPlanItem], list[UnreadItem]]:
     """Keep the items with a real quote, order them as in the text, list the rest.
 
-    The quote is kept as the model wrote it (stripped), so a consumer applies
-    the same white-space rule as :func:`quote_in_text`.
+    The kept quote is the span cut from the text, so it is an exact substring.
 
     Items come back indexed ``0..n-1`` in the order their quotes appear in the
     text (a stable sort, so equal positions keep the model's order). An item
@@ -80,22 +51,23 @@ def split_items(
     Returns:
         ``(items, unread)``.
     """
-    normalized = normalize_whitespace(text)
-    found: list[tuple[int, DraftPlanItem]] = []
+    found: list[tuple[int, str, DraftPlanItem]] = []
     unread: list[UnreadItem] = []
     for draft in drafts:
-        needle = normalize_whitespace(draft.quote)
-        position = normalized.find(needle) if needle else -1
-        if position < 0:
+        span = find_quote(text, draft.quote)
+        if span is None:
             unread.append(
-                UnreadItem(quote=needle[:QUOTE_MAX_CHARS], reason="quote_not_in_text")
+                UnreadItem(
+                    quote=draft.quote.strip()[:QUOTE_MAX_CHARS],
+                    reason="quote_not_in_text",
+                )
             )
         else:
-            found.append((position, draft))
+            found.append((text.find(span), span, draft))
     found.sort(key=itemgetter(0))
     items: list[ParsedPlanItem] = []
-    for _, draft in found:
-        fields = draft.model_dump() | {"quote": draft.quote.strip()}
+    for _, span, draft in found:
+        fields = draft.model_dump() | {"quote": span}
         try:
             items.append(ParsedPlanItem(index=len(items), **fields))
         except ValidationError:
