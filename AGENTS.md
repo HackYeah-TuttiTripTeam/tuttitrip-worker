@@ -49,7 +49,10 @@ src/tuttitrip_worker/
     llm/               model catalog (GB10 Qwen, basal, JEV, OpenRouter, local) and embedder
     db/                async engine, table mappings (no DDL), job_results step
   system/              ping (smoke test) + heartbeat schedule
-  planning/            durable planner agent (generate_trip_plan)
+  planning/            durable planner agent (generate_trip_plan), write_justifications
+  linter/              parse_pasted_plan (stub until tuttitrip-worker#23)
+  accommodation/       extract_offer_evidence (stub until tuttitrip-worker#25)
+  places/              fetch_place_candidates (stub until tuttitrip-worker#26)
   embeddings/          embed_texts -> pgvector; logic/ = pure row building
 src/tuttitrip_dbos_dashboard/  read-only DBOS dashboard (not a worker domain), see below
 contracts/jobs.schema.json   rendered contract, compared with the backend mirror
@@ -84,7 +87,8 @@ Anything else in a domain directory fails `test_domain_contains_only_known_files
    transitively, nor `workflows`/`steps`/`agents`/`services`/`shared`/`main`.
    Identified by module path (regex), so adding a `logic/` package or a
    `schemas.py` opts it in automatically.
-4. Only `agents.py` and `shared.llm` import `pydantic_ai`.
+4. Only `agents.py` and `shared.llm` import `pydantic_ai`, `pydantic_ai_harness` and
+   `stackone_defender`.
 5. Only `workflows.py`, `steps.py`, `shared.dbos`, `shared.db` and `main`
    import `dbos`.
 6. Only `steps.py` and `shared.db` import `sqlalchemy`/`psycopg`/`pgvector`.
@@ -213,6 +217,15 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | `generate_trip_plan` | `openrouter` (or `local_llm` for `provider=local`) | `{contract_version, trip_id, request, provider}` | `{contract_version, destination, days, highlights}` |
 | `embed_texts` | `default` | `{contract_version, source_kind, source_id, texts}` | `{contract_version, model, dimensions, stored}` |
 | `ping` | `default` | `{contract_version, message}` | `{contract_version, message, worker_app_version}` |
+| `parse_pasted_plan` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, city_slug, provider}` | `{contract_version, items, unread, matches}` |
+| `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence}` |
+| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored}` |
+| `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, locale, provider}` | `{contract_version, justifications}` |
+
+The last four are stubs: they validate the payload and end with `ContractError`
+code `not_implemented` until their issues land (tuttitrip-worker#23-#26).
+\[1] Dokładnie jedno z `city_query` i `city_slug`.
+Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
 
 ## Conventions
 

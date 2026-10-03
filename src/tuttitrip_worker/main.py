@@ -14,6 +14,7 @@ from typing import Any, Final
 
 from dbos import DBOS
 
+from tuttitrip_worker.accommodation.workflows import extract_offer_evidence
 from tuttitrip_worker.contracts import (
     APPLICATION_NAME,
     CONTRACT_VERSION,
@@ -23,7 +24,9 @@ from tuttitrip_worker.contracts import (
 )
 from tuttitrip_worker.embeddings.workflows import embed_texts
 from tuttitrip_worker.healthcheck import LIVENESS_FILE, LIVENESS_INTERVAL_SEC
-from tuttitrip_worker.planning.workflows import generate_trip_plan
+from tuttitrip_worker.linter.workflows import parse_pasted_plan
+from tuttitrip_worker.places.workflows import fetch_place_candidates
+from tuttitrip_worker.planning.workflows import generate_trip_plan, write_justifications
 from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.dbos.runtime import init_dbos, register_queues
 from tuttitrip_worker.system.workflows import heartbeat, ping
@@ -34,6 +37,10 @@ WORKFLOWS: Final[Mapping[Workflow, Callable[..., Any]]] = {
     Workflow.PING: ping,
     Workflow.GENERATE_TRIP_PLAN: generate_trip_plan,
     Workflow.EMBED_TEXTS: embed_texts,
+    Workflow.PARSE_PASTED_PLAN: parse_pasted_plan,
+    Workflow.EXTRACT_OFFER_EVIDENCE: extract_offer_evidence,
+    Workflow.FETCH_PLACE_CANDIDATES: fetch_place_candidates,
+    Workflow.WRITE_JUSTIFICATIONS: write_justifications,
 }
 """Every contract workflow and the function registered under its name."""
 

@@ -18,6 +18,8 @@ from tests.architecture.layout import PACKAGE, top_level_domains
 DOMAINS = top_level_domains()
 IO_FRAMEWORKS = (
     "pydantic_ai",
+    "pydantic_ai_harness",
+    "stackone_defender",
     "dbos",
     "sqlalchemy",
     "psycopg",
@@ -85,10 +87,12 @@ def test_pure_modules_do_not_reach_io_layers() -> None:
 
 def test_only_agents_and_shared_llm_import_pydantic_ai() -> None:
     (
-        archrule("agents live in agents.py", use_regex=True)
+        archrule("agents and Harness live in agents.py", use_regex=True)
         .match(rf"^{PACKAGE}(\.|$)")
         .exclude(r"\.agents$", rf"^{PACKAGE}\.shared\.llm(\.|$)")
-        .should_not_import(r"^pydantic_ai(\.|$)")
+        .should_not_import(
+            r"^(pydantic_ai|pydantic_ai_harness|stackone_defender)(\.|$)"
+        )
         .check(PACKAGE, only_direct_imports=True)
     )
 
