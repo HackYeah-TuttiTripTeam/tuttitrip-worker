@@ -70,6 +70,25 @@ class DemoSettings(BaseModel):
     api_base_url: str = ""
 
 
+class OsmSettings(BaseModel):
+    """Open-data services behind ``fetch_place_candidates`` (their usage policies).
+
+    Overpass: below 10 000 queries a day per instance, so an application uses
+    about a hundredth of that (``overpass_daily_limit``), never in parallel,
+    and pauses 30 s after a 429. Nominatim: at most one request a second.
+    """
+
+    nominatim_url: str = "https://nominatim.openstreetmap.org"
+    overpass_url: str = "https://overpass-api.de/api/interpreter"
+    # Identifies the application to the services (required by both policies).
+    user_agent: str = (
+        "TuttiTrip/1.0 (+https://github.com/HackYeah-TuttiTripTeam/tuttitrip-worker)"
+    )
+    # A city is fetched again at most once per this many days.
+    refresh_days: int = Field(default=30, ge=1, le=365)
+    overpass_daily_limit: int = Field(default=100, ge=1, le=100)
+
+
 class Settings(BaseSettings):
     """Root settings object for the worker."""
 
@@ -98,6 +117,7 @@ class Settings(BaseSettings):
     dbos: DbosSettings = Field(default_factory=DbosSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)
     demo: DemoSettings = Field(default_factory=DemoSettings)
+    osm: OsmSettings = Field(default_factory=OsmSettings)
 
     def system_database_url(self) -> str:
         """DBOS system database URL (defaults to the application database).

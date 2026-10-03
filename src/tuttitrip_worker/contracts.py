@@ -23,7 +23,10 @@ unchanged or only grows): ``ErrorCode.DOCUMENT_NOT_FOUND`` (code of the error
 of a workflow whose pasted document does not exist; the backend maps it in
 tuttitrip-backend#142) and ``ErrorCode.MODEL_OUTPUT_INVALID`` (the model never
 produced a valid structured answer, for example ``parse_pasted_plan`` after the
-last retry; the backend maps it like the others).
+last retry; the backend maps it like the others), ``ErrorCode.CITY_NOT_FOUND``
+(``fetch_place_candidates`` cannot find the city in Nominatim, or ``city_slug``
+names a city nobody has fetched yet) and ``ErrorCode.RATE_LIMITED`` (the daily
+budget of Overpass queries is spent; try again tomorrow).
 
 This module is pure: it imports only the standard library and Pydantic
 (enforced by ``tests/architecture``).
@@ -102,6 +105,8 @@ class ErrorCode(StrEnum):
     NOT_IMPLEMENTED = "not_implemented"
     DOCUMENT_NOT_FOUND = "document_not_found"
     MODEL_OUTPUT_INVALID = "model_output_invalid"
+    CITY_NOT_FOUND = "city_not_found"
+    RATE_LIMITED = "rate_limited"
 
 
 class ContractPayload(BaseModel):
@@ -557,6 +562,22 @@ def model_output_invalid(workflow: Workflow) -> ContractError:
     return ContractError(
         f"the model returned no valid answer for {workflow.value}", data
     )
+
+
+def contract_failure(code: ErrorCode, message: str) -> ContractError:
+    """Error of a workflow that cannot finish for a reason outside the payload shape.
+
+    Args:
+        code: Machine-readable reason.
+        message: Text the backend shows in ``GET /jobs/{id}``.
+
+    Returns:
+        A ``ContractError`` with that code.
+    """
+    data = ContractErrorData(
+        code=code, supported_versions=sorted(SUPPORTED_CONTRACT_VERSIONS)
+    )
+    return ContractError(message, data)
 
 
 def not_implemented(workflow: Workflow) -> ContractError:
