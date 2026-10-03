@@ -38,8 +38,8 @@ class LlmSettings(BaseModel):
     # JEV decision model (`tuttitrip:decide-cloud`), served through OpenRouter.
     jev_model: str = "typesafe/jev-1.13"
     # GB10 (dellpromaxgb10) behind LiteLLM: Qwen (OpenAI-compatible) and the
-    # decision models basal and Laya. Empty key = requests fail with 401 and
-    # the fallback (OpenRouter or Qwen) answers.
+    # decision models basal and Laya. Empty key = the GB10 models are skipped;
+    # the model is left out of its chain.
     gb10_base_url: str = "https://llm.gburek.app/v1"
     gb10_api_key: SecretStr = SecretStr("")
     gb10_agent_model: str = "qwen3.8-27b"

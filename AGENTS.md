@@ -114,12 +114,14 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
    ids of `shared/llm/models.py` (`ModelKey`, same as the backend's catalog):
    `tuttitrip:agent` (Qwen3.8-27B thinking on the GB10, `FallbackModel` to
    OpenRouter), `tuttitrip:chat` (Qwen chat, same fallback), `tuttitrip:decide`
-   (basal, falls back to Qwen chat on `UnfillableRoute` or an API error),
+   (basal, escalates to Qwen chat on `UnfillableRoute` or an API error),
    `tuttitrip:decide-laya`, `tuttitrip:decide-cloud` (JEV via OpenRouter),
    `tuttitrip:openrouter`, `tuttitrip:local`. The catalog's `ResolveModelId`
    capability builds the real model inside the step from settings.
    Decision models take at most 10 pick-one options (`UserError` otherwise).
-   `scripts/smoke_models.py` calls every leg against the real endpoints (not in CI). Tests swap models with `catalog.override(TestModel())`.
+   `scripts/smoke_models.py` calls every leg against the real endpoints (not in CI).
+   Links without an API key are left out of a chain; a chain without any key
+   raises `UserError` when the model is built. Tests swap models with `catalog.override(TestModel())`.
 5. **Register before launch.** Every workflow, step and agent must exist
    before `DBOS.launch()`: `main.py` imports all workflow modules at import
    time. Queues are registered after launch with `DBOS.register_queue`
@@ -233,7 +235,7 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
   plus the standard names `DBOS_SYSTEM_DATABASE_URL` and `DBOS__APPVERSION`.
   `.env.example` must list exactly the Settings fields (`tests/test_settings.py`).
 - `TUTTITRIP_LLM__GB10_API_KEY` is the LiteLLM key of `llm.gburek.app` (Qwen and
-  basal); empty means those calls get 401 and the fallbacks answer.
+  basal and Laya); empty means the GB10 models are skipped.
 - `OPENROUTER_API_KEY` is read by Pydantic AI under its standard name unless
   `TUTTITRIP_LLM__OPENROUTER_API_KEY` is set.
 - Never commit secrets or `.env`, never print them. CI/deploy secrets are

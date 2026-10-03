@@ -30,7 +30,9 @@ from contextlib import contextmanager
 from enum import StrEnum
 from typing import Any, Final
 
+from openai import AsyncOpenAI
 from pydantic_ai.capabilities import ResolveModelId
+from pydantic_ai.exceptions import UserError
 from pydantic_ai.models import Model, ModelResolutionContext
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -46,13 +48,9 @@ from tuttitrip_worker.shared.config.settings import LlmSettings, get_settings
 
 MODEL_ID_PREFIX: Final = "tuttitrip:"
 
-# Limit of pick-one options the basal/Laya API answers; more raises `UserError`
-# before any request is sent.
+# Pick-one limit of every decision model (basal, Laya, JEV); more options raise
+# `UserError` before any request is sent.
 DECISION_PROFILE: Final = DecisionModelProfile(decision_max_choice_options=10)
-
-# Sent when a key is not configured, so building a model never needs a key; the
-# request then fails with 401 (a `ModelAPIError`) and the fallback takes over.
-UNSET_KEY: Final = "unset"
 
 
 class ModelKey(StrEnum):
@@ -83,37 +81,69 @@ def _openrouter_key(settings: LlmSettings) -> str:
     return (
         settings.openrouter_api_key.get_secret_value()
         or os.environ.get("OPENROUTER_API_KEY")
-        or UNSET_KEY
+        or ""
     )
 
 
-def _openrouter(settings: LlmSettings) -> Model:
+def _openrouter(settings: LlmSettings) -> Model | None:
+    key = _openrouter_key(settings)
+    if not key:
+        return None
+    # OpenRouterProvider has no base_url argument; a client carries it.
+    client = AsyncOpenAI(base_url=settings.openrouter_base_url, api_key=key)
     return OpenRouterModel(
-        settings.openrouter_model,
-        provider=OpenRouterProvider(api_key=_openrouter_key(settings)),
+        settings.openrouter_model, provider=OpenRouterProvider(openai_client=client)
     )
 
 
-def _gb10_qwen(name: str, settings: LlmSettings) -> Model:
+def _gb10_qwen(name: str, settings: LlmSettings) -> Model | None:
+    key = settings.gb10_api_key.get_secret_value()
+    if not key:
+        return None
     return OpenAIChatModel(
         name,
-        provider=OpenAIProvider(
-            base_url=settings.gb10_base_url,
-            api_key=settings.gb10_api_key.get_secret_value() or UNSET_KEY,
-        ),
+        provider=OpenAIProvider(base_url=settings.gb10_base_url, api_key=key),
     )
 
 
-def _decision(name: str, base_url: str, api_key: str) -> Model:
+def _decision(name: str, base_url: str, settings: LlmSettings) -> Model | None:
+    key = settings.gb10_api_key.get_secret_value()
+    if not key:
+        return None
     return SystemOneModel(
         name,
-        provider=SystemOneProvider(base_url=base_url, api_key=api_key or UNSET_KEY),
+        provider=SystemOneProvider(base_url=base_url, api_key=key),
         profile=DECISION_PROFILE,
     )
 
 
+def _chain(key: ModelKey, *links: Model | None) -> Model:
+    """Join the links that have a key into a ``FallbackModel``.
+
+    Args:
+        key: Catalog id, for the error message.
+        *links: Models in order of preference; ``None`` = no key configured.
+
+    Returns:
+        The only link, or a ``FallbackModel`` of all of them.
+
+    Raises:
+        UserError: No link has a key.
+    """
+    models = [link for link in links if link is not None]
+    if not models:
+        msg = (
+            f"No API key is configured for {model_id(key)}: set "
+            "TUTTITRIP_LLM__GB10_API_KEY and/or OPENROUTER_API_KEY."
+        )
+        raise UserError(msg)
+    return models[0] if len(models) == 1 else FallbackModel(*models)
+
+
 def build_model(key: ModelKey | LlmProvider, settings: LlmSettings) -> Model:
     """Build the real model (or fallback chain) for a catalog id from settings.
+
+    Links whose API key is missing are left out of the chain.
 
     Args:
         key: Which catalog model to build.
@@ -122,10 +152,11 @@ def build_model(key: ModelKey | LlmProvider, settings: LlmSettings) -> Model:
     Returns:
         A Pydantic AI model; network calls happen only when it is used.
     """
-    gb10_key = settings.gb10_api_key.get_secret_value()
-    match ModelKey(key.value):  # a StrEnum member of LlmProvider shares the value
+    model_key = ModelKey(key.value)  # LlmProvider members share the values
+    qwen_chat = _gb10_qwen(settings.gb10_chat_model, settings)
+    match model_key:
         case ModelKey.OPENROUTER:
-            return _openrouter(settings)
+            return _chain(model_key, _openrouter(settings))
         case ModelKey.LOCAL:
             return OpenAIChatModel(
                 settings.local_model,
@@ -134,30 +165,31 @@ def build_model(key: ModelKey | LlmProvider, settings: LlmSettings) -> Model:
                     api_key=settings.local_api_key.get_secret_value(),
                 ),
             )
-        case ModelKey.AGENT | ModelKey.CHAT:
-            name = (
-                settings.gb10_agent_model
-                if key is ModelKey.AGENT
-                else settings.gb10_chat_model
-            )
-            return FallbackModel(_gb10_qwen(name, settings), _openrouter(settings))
+        case ModelKey.AGENT:
+            qwen = _gb10_qwen(settings.gb10_agent_model, settings)
+            return _chain(model_key, qwen, _openrouter(settings))
+        case ModelKey.CHAT:
+            return _chain(model_key, qwen_chat, _openrouter(settings))
         case ModelKey.DECIDE | ModelKey.DECIDE_LAYA:
-            decision = (
-                _decision(settings.basal_model, settings.basal_base_url, gb10_key)
-                if key is ModelKey.DECIDE
-                else _decision(settings.laya_model, settings.laya_base_url, gb10_key)
-            )
-            return FallbackModel(
-                decision, _gb10_qwen(settings.gb10_chat_model, settings)
-            )
+            name, url = {
+                ModelKey.DECIDE: (settings.basal_model, settings.basal_base_url),
+                ModelKey.DECIDE_LAYA: (settings.laya_model, settings.laya_base_url),
+            }[model_key]
+            return _chain(model_key, _decision(name, url, settings), qwen_chat)
         case ModelKey.DECIDE_CLOUD:
-            return SystemOneModel(
-                settings.jev_model,
-                provider=SystemOneProvider(
-                    base_url=settings.openrouter_base_url,
-                    api_key=_openrouter_key(settings),
-                ),
+            key_ = _openrouter_key(settings)
+            jev = (
+                SystemOneModel(
+                    settings.jev_model,
+                    provider=SystemOneProvider(
+                        base_url=settings.openrouter_base_url, api_key=key_
+                    ),
+                    profile=DECISION_PROFILE,
+                )
+                if key_
+                else None
             )
+            return _chain(model_key, jev)
 
 
 class ModelCatalog:

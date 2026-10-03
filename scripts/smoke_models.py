@@ -1,12 +1,12 @@
 """Real-endpoint smoke test of the model catalog (never runs in CI).
 
-Calls every leg of the catalog (Qwen agent and chat, OpenRouter, basal, JEV and,
-with ``--laya``, Laya) with a tiny Polish prompt, one by one, so a working
+Calls every leg of the catalog (Qwen agent and chat, OpenRouter, basal, Laya and
+JEV) with a tiny Polish prompt, one by one, so a working
 fallback cannot hide a broken primary model. Keys come from the environment:
 ``TUTTITRIP_LLM__GB10_API_KEY`` (or ``GB10_LITELLM_KEY``) and
 ``OPENROUTER_API_KEY``. Nothing secret is printed.
 
-    uv run python scripts/smoke_models.py [--laya]
+    uv run python scripts/smoke_models.py
 """
 
 import asyncio
@@ -15,7 +15,7 @@ import sys
 import time
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
 from pydantic_ai.models.fallback import FallbackModel
@@ -74,25 +74,23 @@ async def check(label: str, model: Model, *, decision: bool) -> bool:
     return True
 
 
-async def main(*, with_laya: bool) -> int:
+async def main() -> int:
     """Smoke every catalog leg.
-
-    Args:
-        with_laya: Also call Laya (its endpoint is not always deployed).
 
     Returns:
         Process exit code: 0 when every call answered.
     """
-    gb10_key = os.environ.get("GB10_LITELLM_KEY", "")
-    settings = LlmSettings(gb10_api_key=gb10_key) if gb10_key else LlmSettings()
+    gb10_key = os.environ.get("TUTTITRIP_LLM__GB10_API_KEY") or os.environ.get(
+        "GB10_LITELLM_KEY", ""
+    )
+    settings = LlmSettings(gb10_api_key=SecretStr(gb10_key))
     plan = [
         (ModelKey.AGENT, False),
         (ModelKey.CHAT, False),
         (ModelKey.DECIDE, True),
+        (ModelKey.DECIDE_LAYA, True),
         (ModelKey.DECIDE_CLOUD, True),
     ]
-    if with_laya:
-        plan.append((ModelKey.DECIDE_LAYA, True))
     results: list[bool] = []
     for key, decision in plan:
         for model in legs(key, settings):
@@ -102,4 +100,4 @@ async def main(*, with_laya: bool) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main(with_laya="--laya" in sys.argv)))
+    sys.exit(asyncio.run(main()))

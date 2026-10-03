@@ -56,6 +56,10 @@ def test_catalog_resolves_only_our_ids() -> None:
     assert model_id(LlmProvider.LOCAL) == "tuttitrip:local"
 
 
+KEYS = LlmSettings(gb10_api_key="k-gb10", openrouter_api_key="k-or")
+DECISION_KEYS = [ModelKey.DECIDE, ModelKey.DECIDE_LAYA, ModelKey.DECIDE_CLOUD]
+
+
 def legs(model: object) -> list[str]:
     assert isinstance(model, FallbackModel)
     return [leg.model_name for leg in model.models]
@@ -74,53 +78,86 @@ def test_ids_are_the_ones_of_the_backend_catalog() -> None:
 
 
 def test_agent_and_chat_are_qwen_with_an_openrouter_fallback() -> None:
-    settings = LlmSettings(gb10_base_url="http://gb10/v1")
+    settings = KEYS.model_copy(update={"gb10_base_url": "http://gb10/v1"})
     agent = build_model(ModelKey.AGENT, settings)
-    chat = build_model(ModelKey.CHAT, settings)
     assert legs(agent) == ["qwen3.8-27b", settings.openrouter_model]
-    assert legs(chat) == ["qwen3.8-27b-chat", settings.openrouter_model]
+    assert legs(build_model(ModelKey.CHAT, settings)) == [
+        "qwen3.8-27b-chat",
+        settings.openrouter_model,
+    ]
     assert isinstance(agent, FallbackModel)
     assert isinstance(agent.models[0], OpenAIChatModel)
     assert agent.models[0].base_url == "http://gb10/v1/"
     assert isinstance(agent.models[1], OpenRouterModel)
 
 
-def test_decide_is_basal_with_qwen_chat_behind_it() -> None:
-    model = build_model(ModelKey.DECIDE, LlmSettings(basal_base_url="http://gb10/b/v1"))
-    assert legs(model) == ["basal", "qwen3.8-27b-chat"]
-    assert isinstance(model, FallbackModel)
-    basal = model.models[0]
-    assert isinstance(basal, SystemOneModel)
-    assert basal.base_url == "http://gb10/b/v1"
-    assert basal.profile.get("decision_max_choice_options") == 10  # type: ignore[attr-defined]
-    assert DECISION_PROFILE["decision_max_choice_options"] == 10
+def test_decide_and_laya_escalate_to_qwen_chat() -> None:
+    settings = KEYS.model_copy(update={"basal_base_url": "http://gb10/b/v1"})
+    basal = build_model(ModelKey.DECIDE, settings)
+    assert legs(basal) == ["basal", "qwen3.8-27b-chat"]
+    assert isinstance(basal, FallbackModel)
+    assert isinstance(basal.models[0], SystemOneModel)
+    assert basal.models[0].base_url == "http://gb10/b/v1"
+    assert legs(build_model(ModelKey.DECIDE_LAYA, KEYS)) == ["laya", "qwen3.8-27b-chat"]
 
 
-def test_laya_and_jev_are_decision_models() -> None:
-    laya = build_model(ModelKey.DECIDE_LAYA, LlmSettings())
-    assert legs(laya) == ["laya", "qwen3.8-27b-chat"]
-    jev = build_model(ModelKey.DECIDE_CLOUD, LlmSettings())
+def test_jev_goes_through_the_openrouter_base_url() -> None:
+    jev = build_model(ModelKey.DECIDE_CLOUD, KEYS)
     assert isinstance(jev, SystemOneModel)
     assert jev.model_name == "typesafe/jev-1.13"
     assert jev.base_url == "https://openrouter.ai/api/v1"
 
 
-def test_models_build_without_any_key() -> None:
-    for key in ModelKey:
-        assert build_model(key, LlmSettings()) is not None
-    assert build_model(ModelKey.AGENT, LlmSettings()).model_name.startswith("fallback")
+@pytest.mark.parametrize("key", DECISION_KEYS)
+def test_every_decision_model_has_the_ten_option_limit(key: ModelKey) -> None:
+    model = build_model(key, KEYS)
+    decision = model.models[0] if isinstance(model, FallbackModel) else model
+    assert isinstance(decision, SystemOneModel)
+    assert decision.profile.get("decision_max_choice_options") == 10  # type: ignore[attr-defined]
+    assert DECISION_PROFILE["decision_max_choice_options"] == 10
+
+
+def test_links_without_a_key_are_skipped() -> None:
+    only_or = LlmSettings(openrouter_api_key="k-or")
+    assert isinstance(build_model(ModelKey.AGENT, only_or), OpenRouterModel)
+    assert isinstance(build_model(ModelKey.CHAT, only_or), OpenRouterModel)
+    only_gb10 = LlmSettings(gb10_api_key="k-gb10")
+    assert isinstance(build_model(ModelKey.AGENT, only_gb10), OpenAIChatModel)
+    assert legs(build_model(ModelKey.DECIDE, only_gb10)) == [
+        "basal",
+        "qwen3.8-27b-chat",
+    ]
+
+
+@pytest.mark.parametrize("key", [key for key in ModelKey if key is not ModelKey.LOCAL])
+def test_a_chain_without_any_key_raises_a_user_error(key: ModelKey) -> None:
+    with pytest.raises(UserError, match=model_id(key)):
+        build_model(key, LlmSettings())
+
+
+def test_local_needs_no_key() -> None:
+    assert isinstance(build_model(ModelKey.LOCAL, LlmSettings()), OpenAIChatModel)
 
 
 class Pick(BaseModel):
     choice: Literal["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]
 
 
-def test_eleven_options_fail_before_any_request() -> None:
+@pytest.mark.parametrize("key", DECISION_KEYS)
+def test_eleven_options_fail_before_any_request(key: ModelKey) -> None:
     # Nothing listens here: sending a request would fail with an API error.
-    settings = LlmSettings(
-        basal_base_url="http://127.0.0.1:9/v1", gb10_base_url="http://127.0.0.1:9/v1"
+    dead = "http://127.0.0.1:9/v1"
+    settings = KEYS.model_copy(
+        update={
+            "basal_base_url": dead,
+            "laya_base_url": dead,
+            "gb10_base_url": dead,
+            "openrouter_base_url": dead,
+        }
     )
-    agent = Agent(build_model(ModelKey.DECIDE, settings), output_type=Pick)
+    agent = Agent(build_model(key, settings), output_type=Pick)
+    # The limit is checked inside the decision model, after the allow-requests
+    # gate, so the gate is opened; the UserError comes before any HTTP call.
     with models.override_allow_model_requests(True), pytest.raises(UserError):  # ruff: ignore[boolean-positional-value-in-call]
         agent.run_sync("wybierz")
 
