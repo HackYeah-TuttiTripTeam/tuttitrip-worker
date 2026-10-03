@@ -35,7 +35,6 @@ def _client(handler: httpx.MockTransport) -> httpx.AsyncClient:
         ("main", "", "http://tuttitrip-api:8000"),
         ("develop", "", "http://tuttitrip-api-develop:8000"),
         ("feature-x", "", "http://tuttitrip-api-feature-x:8000"),
-        ("local", "", "http://localhost:8000"),
         ("develop", "http://api.test:9000/", "http://api.test:9000"),
     ],
 )
@@ -76,9 +75,8 @@ def test_request_reset_reports_a_disabled_demo() -> None:
 @pytest.mark.parametrize(
     "response",
     [
-        httpx.Response(404, text=SECRET),
-        httpx.Response(401),
-        httpx.Response(500),
+        httpx.Response(500, text=SECRET),
+        httpx.Response(502),
         httpx.Response(200, content=b"not json"),
         httpx.Response(200, content=json.dumps({"status": "?"}).encode()),
     ],
@@ -94,6 +92,16 @@ def test_request_reset_fails_without_leaking_the_secret(
     with pytest.raises(DemoResetError) as raised:
         asyncio.run(run())
     assert SECRET not in str(raised.value)
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_request_reset_does_not_retry_a_client_error(status: int) -> None:
+    async def run() -> DemoResetResult:
+        transport = httpx.MockTransport(lambda _r: httpx.Response(status, text=SECRET))
+        async with _client(transport) as client:
+            return await request_reset(client, URL, SECRET)
+
+    assert asyncio.run(run()) == DemoResetResult(status="refused")
 
 
 def test_request_reset_wraps_transport_errors() -> None:
@@ -126,7 +134,7 @@ def test_workflow_calls_the_step_when_configured(
         calls.append("called")
         return {"status": "reset", "trips": 4}
 
-    monkeypatch.setattr(steps, "reset_demo_account", fake_step)
+    monkeypatch.setattr(steps, "post_demo_reset", fake_step)
     with caplog.at_level(logging.INFO, logger="tuttitrip-worker"):
         _run_workflow()
     assert calls == ["called"]
@@ -134,16 +142,52 @@ def test_workflow_calls_the_step_when_configured(
     assert SECRET not in caplog.text
 
 
-def test_workflow_does_nothing_without_a_secret(
-    dbos: Settings, monkeypatch: pytest.MonkeyPatch
+def test_workflow_without_a_secret_warns_in_local_and_calls_nothing(
+    dbos: Settings, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     del dbos
 
     async def fake_step() -> dict[str, Any]:
         pytest.fail("the backend must not be called")
 
-    monkeypatch.setattr(steps, "reset_demo_account", fake_step)
-    _run_workflow()
+    monkeypatch.setattr(steps, "post_demo_reset", fake_step)
+    with caplog.at_level(logging.WARNING, logger="tuttitrip-worker"):
+        _run_workflow()
+    assert "no TUTTITRIP_DEMO__RESET_SECRET" in caplog.text
+
+
+def test_workflow_without_a_secret_fails_outside_local(
+    dbos: Settings, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    del dbos
+    monkeypatch.setenv("TUTTITRIP_ENVIRONMENT", "develop")
+    get_settings.cache_clear()
+
+    async def fake_step() -> dict[str, Any]:
+        pytest.fail("the backend must not be called")
+
+    monkeypatch.setattr(steps, "post_demo_reset", fake_step)
+    with (
+        caplog.at_level(logging.WARNING, logger="tuttitrip-worker"),
+        pytest.raises(DemoResetError, match="not set"),
+    ):
+        _run_workflow()
+    assert "no TUTTITRIP_DEMO__RESET_SECRET" in caplog.text
+
+
+def test_workflow_fails_when_the_backend_refuses_the_secret(
+    dbos: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del dbos
+    monkeypatch.setenv("TUTTITRIP_DEMO__RESET_SECRET", SECRET)
+    get_settings.cache_clear()
+
+    async def fake_step() -> dict[str, Any]:
+        return {"status": "refused"}
+
+    monkeypatch.setattr(steps, "post_demo_reset", fake_step)
+    with pytest.raises(DemoResetError, match="refused"):
+        _run_workflow()
 
 
 def test_workflow_treats_a_disabled_demo_as_success(
@@ -156,7 +200,7 @@ def test_workflow_treats_a_disabled_demo_as_success(
     async def fake_step() -> dict[str, Any]:
         return {"status": "disabled"}
 
-    monkeypatch.setattr(steps, "reset_demo_account", fake_step)
+    monkeypatch.setattr(steps, "post_demo_reset", fake_step)
     with caplog.at_level(logging.INFO, logger="tuttitrip-worker"):
         _run_workflow()
     assert "disabled" in caplog.text

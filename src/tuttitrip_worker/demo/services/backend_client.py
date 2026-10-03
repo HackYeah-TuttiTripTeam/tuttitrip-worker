@@ -9,7 +9,7 @@ USER_AGENT = "TuttiTripWorker/1.0 (+https://tuttitrip.gburek.app)"
 
 
 class DemoResetError(Exception):
-    """The backend refused or could not be reached; carries no secret."""
+    """The backend failed or could not be reached; carries no secret."""
 
 
 def build_client() -> httpx.AsyncClient:
@@ -34,16 +34,19 @@ async def request_reset(
         secret: Shared secret, sent as a bearer token; never logged.
 
     Returns:
-        What the backend did.
+        What the backend did; ``refused`` for any 4xx (wrong secret, no route).
 
     Raises:
-        DemoResetError: Transport failure, a non-200 status or a bad body.
+        DemoResetError: Transport failure, a 5xx or other non-200 status, or a
+            bad body (worth retrying).
     """
     try:
         response = await client.post(url, headers={"Authorization": f"Bearer {secret}"})
     except httpx.HTTPError as exc:
         msg = f"demo reset request failed: {type(exc).__name__}"
         raise DemoResetError(msg) from None
+    if httpx.codes.is_client_error(response.status_code):
+        return DemoResetResult(status="refused")  # a retry cannot fix a 4xx
     if response.status_code != httpx.codes.OK:
         msg = f"demo reset refused: HTTP {response.status_code}"
         raise DemoResetError(msg)

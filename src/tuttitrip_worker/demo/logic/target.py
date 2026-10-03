@@ -5,7 +5,6 @@ from typing import Final
 RESET_PATH: Final = "/api/v1/internal/demo/reset"
 API_PORT: Final = 8000
 MAIN_ENV: Final = "main"
-LOCAL_ENV: Final = "local"
 
 
 def api_base_url(environment: str, override: str = "") -> str:
@@ -17,15 +16,14 @@ def api_base_url(environment: str, override: str = "") -> str:
 
     Args:
         environment: The worker's environment name (``TUTTITRIP_ENVIRONMENT``).
-        override: Explicit base URL; wins when not empty.
+        override: Explicit base URL (``TUTTITRIP_DEMO__API_BASE_URL``, e.g. for
+            local runs); wins when not empty.
 
     Returns:
         The URL without a trailing slash.
     """
     if override:
         return override.rstrip("/")
-    if environment == LOCAL_ENV:
-        return f"http://localhost:{API_PORT}"
     name = (
         "tuttitrip-api" if environment == MAIN_ENV else f"tuttitrip-api-{environment}"
     )
