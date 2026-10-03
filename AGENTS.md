@@ -36,7 +36,7 @@ uv run python scripts/export_contracts.py # regenerate contracts/jobs.schema.jso
 uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest -m "not integration and not e2e"
 
 # Local only, before the PR is marked ready (CI does not run them; part of the smoke step):
-uv run pytest -m "integration or e2e"
+uv run pytest -m integration
 ```
 
 ## Layout: vertical slices
@@ -316,7 +316,7 @@ innym w drogę i żeby każda funkcja przeszła ten sam proces. Dotyczą też lu
    CI sprawdza tylko lint, typy, testy jednostkowe i architektury (`pytest -m "not integration and not e2e"`).
    Testy z markerami `integration` i `e2e` (DBOS na SQLite, prawdziwe usługi) nie chodzą na CI, więc
    przed oznaczeniem PR jako gotowego uruchom lokalnie `uv run pytest` (cały zestaw, albo osobno
-   `uv run pytest -m "integration or e2e"`) i wpisz wynik w komentarzu ze smoke testem.
+   `uv run pytest -m integration`) i wpisz wynik w komentarzu ze smoke testem.
    Przejdź scenariusz z kryteriów akceptacji issue:
    - lokalnie: backend (lokalny stos) i worker uruchomione razem (README); po merge'u to samo na develop,
    - tylko gdy podgląd jest niezbędny: etykieta `preview` na PR wdraża worker gałęzi,
@@ -373,7 +373,7 @@ Zgłoszenia (issues):
 
   ### Definition of Done
   - [ ] CI zielone (lint, typy, testy jednostkowe, testy architektury)
-  - [ ] Lokalnie przeszły testy integracyjne i smoke test (`uv run pytest -m "integration or e2e"`)
+  - [ ] Lokalnie przeszły testy integracyjne i smoke test (`uv run pytest -m integration`)
   - [ ] PR zmergowany do `develop` i sprawdzony na wdrożeniu develop
 
   ### Obszar
