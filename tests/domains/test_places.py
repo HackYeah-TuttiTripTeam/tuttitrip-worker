@@ -14,6 +14,7 @@ import httpx
 import pytest
 from dbos import DBOSClient, PortableWorkflowError
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql.expression import ClauseElement
 
 from tests.helpers import enqueue
@@ -31,6 +32,7 @@ from tuttitrip_worker.places.logic.slug import slugify
 from tuttitrip_worker.places.logic.taxonomy import RULES, classify, overpass_query
 from tuttitrip_worker.places.schemas import GeocodedCity, PlaceRow, RefreshState
 from tuttitrip_worker.shared.config.settings import Settings
+from tuttitrip_worker.shared.db.tables import places
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "osm"
 NOMINATIM = json.loads((FIXTURES / "nominatim_sopot.json").read_text("utf-8"))
@@ -263,6 +265,12 @@ def test_places_are_upserted_by_osm_key_and_sheet_rows_are_left_alone() -> None:
     assert "city_slug = " not in text.split("DO UPDATE")[1]
     values = steps.place_values("sopot", row())
     assert (values["source"], values["hours_verified"]) == ("osm", False)
+
+
+def test_unknown_hours_are_sql_null_not_json_null() -> None:
+    hours_type = places.c.opening_hours.type
+    assert isinstance(hours_type, JSONB)
+    assert hours_type.none_as_null is True
 
 
 def test_an_existing_city_is_never_overwritten() -> None:

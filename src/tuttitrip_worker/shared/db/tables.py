@@ -98,7 +98,8 @@ places = Table(
     Column("lon", Double, nullable=False),
     Column("osm_type", String(8)),
     Column("osm_id", BigInteger),
-    Column("opening_hours", JSONB),
+    # none_as_null: Python None is SQL NULL ("no hours"), not the JSON value null.
+    Column("opening_hours", JSONB(none_as_null=True)),
     Column("hours_verified", Boolean, nullable=False),
     Column("wheelchair", Boolean),
     Column("indoor", Boolean),
