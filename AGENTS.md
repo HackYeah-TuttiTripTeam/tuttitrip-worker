@@ -354,3 +354,29 @@ removes the worker container when the backend env itself goes away.
 `~/tuttitrip/worker.env` (mode 600) is created by the first deploy with host
 defaults; existing keys are never overwritten, so hand edits survive.
 `OPENROUTER_API_KEY` comes from the GitHub secret of the same name.
+
+## Powiadomienia (Discord)
+
+- `.github/workflows/discord-notify.yml` wysyła na Discord zespołu wynik
+  każdego innego workflow tego repozytorium (`workflow_run: completed`) przez
+  wspólny `discord-notify.yml` z repozytorium
+  [`.github`](https://github.com/HackYeah-TuttiTripTeam/.github). GitHub
+  uruchamia go tylko z kopii na `main`, ta na `develop` jest dla porządku.
+- Nowy albo przemianowany workflow trzeba dopisać po nazwie (`name:`) do
+  listy `workflows:` w tym pliku.
+- Zasady szumu:
+  - `skipped` nie idzie wcale,
+  - `Issue format`, `PR format`, `Delete merged branch`, `Release notes` i sprzątanie (`Cleanup branch deployments`) piszą tylko przy niepowodzeniu,
+  - sukces na `main` i `develop` to pełna wiadomość,
+  - sukces na innej gałęzi i anulowanie to jedna linia,
+  - błąd to zawsze pełna wiadomość z listą nieudanych jobów.
+- Zmiany w projekcie #1 oraz nowe, zamknięte i scalone issue i PR wysyła
+  Worker `tuttitrip-discord-relay` z webhooka organizacji (kod w
+  `.github/discord-relay`), nie ten workflow.
+- Webhook to sekret repozytorium `DISCORD_WEBHOOK_URL` (sekret organizacji
+  nie działa: na darmowym planie nie widzą go repozytoria prywatne). Rotacja:
+  nowy webhook w Discordzie, `gh secret set DISCORD_WEBHOOK_URL` w czterech
+  repozytoriach i `wrangler secret put DISCORD_WEBHOOK_URL` w Workerze.
+  Szczegóły w
+  [CONTRIBUTING.md](https://github.com/HackYeah-TuttiTripTeam/.github/blob/main/CONTRIBUTING.md#powiadomienia-discord).
+  URL-a webhooka nie wklejamy nigdzie (issue, PR, logi, czat).
