@@ -168,7 +168,7 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 - Every payload carries `contract_version`. `parse_input()` rejects an
   unsupported version or an invalid payload with `ContractError`
   (`code`, `data`); the workflow ends `ERROR` and the backend shows the
-  message in `GET /jobs/{id}`. Unknown fields are ignored (additive changes).
+  message in `GET /api/v1/jobs/{id}`. Unknown fields are ignored (additive changes).
 - **Incompatible change procedure:** (1) worker: add the new version to
   `SUPPORTED_CONTRACT_VERSIONS`, accept both payload shapes, deploy (the
   heartbeat advertises `min_contract_version`..`contract_version`);
@@ -191,11 +191,11 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
   is keyed by workflow id, heartbeats by worker id.
 - **Heartbeat.** The scheduled `heartbeat` workflow (every 30 s) upserts
   `worker_heartbeats(worker_id=tuttitrip-worker-<env>, env, contract_version,
-  min_contract_version, app_version, last_seen)`. Backend `/health` and its
+  min_contract_version, app_version, last_seen)`. Backend `/api/v1/health` and its
   enqueue endpoints use it.
 - **Smoke test.** `ping` (echo, no LLM). After a worker deploy of env X,
-  `deploy/smoke.sh` calls `POST https://tuttitrip-api[-X].gburek.app/jobs/ping`
-  and polls `GET /jobs/ping/{id}` until `SUCCESS` (~3 min max), else the deploy fails.
+  `deploy/smoke.sh` calls `POST https://tuttitrip-api[-X].gburek.app/api/v1/jobs/ping`
+  and polls `GET /api/v1/jobs/ping/{id}` until `SUCCESS` (~3 min max), else the deploy fails.
 
 | Workflow | Queue | Input | Output |
 | --- | --- | --- | --- |
