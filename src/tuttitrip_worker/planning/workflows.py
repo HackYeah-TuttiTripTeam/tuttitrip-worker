@@ -52,7 +52,7 @@ async def generate_trip_plan(payload: dict[str, Any]) -> dict[str, Any]:
 
 @DBOS.workflow(name=Workflow.WRITE_JUSTIFICATIONS.value, serialization_type=PORTABLE)
 def write_justifications(payload: dict[str, Any]) -> dict[str, Any]:
-    """Stub of ``write_justifications``; replaced by its own issue.
+    """Stub of ``write_justifications``; replaced by tuttitrip-worker#27.
 
     Args:
         payload: JSON object matching ``WriteJustificationsInput``.

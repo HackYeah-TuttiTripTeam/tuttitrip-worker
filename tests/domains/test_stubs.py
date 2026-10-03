@@ -14,9 +14,12 @@ from tuttitrip_worker.contracts import (
     ErrorCode,
     ExtractOfferEvidenceInput,
     FetchPlaceCandidatesInput,
+    ParsedPlanItem,
     ParsePastedPlanInput,
     ParsePastedPlanOutput,
+    PlaceMatch,
     Queue,
+    RequirementLabel,
     Workflow,
     WriteJustificationsInput,
     queue_for,
@@ -101,3 +104,48 @@ def test_parse_output_leaves_room_for_the_matching_step() -> None:
     output = ParsePastedPlanOutput(items=[])
     assert output.matches == []
     assert output.unread == []
+
+
+def test_offer_requirement_keys_must_be_unique_and_labelled_keys_known() -> None:
+    trip, doc = uuid4(), uuid4()
+    with pytest.raises(ValueError, match="unique"):
+        ExtractOfferEvidenceInput(
+            trip_id=trip, document_id=doc, requirement_keys=["pool", "pool"]
+        )
+    with pytest.raises(ValueError, match="requirement_keys"):
+        ExtractOfferEvidenceInput(
+            trip_id=trip,
+            document_id=doc,
+            requirement_keys=["pool"],
+            requirements=[RequirementLabel(key="spa", label="Spa")],
+        )
+    ok = ExtractOfferEvidenceInput(
+        trip_id=trip,
+        document_id=doc,
+        requirement_keys=["pool"],
+        requirements=[RequirementLabel(key="pool", label="Basen")],
+    )
+    assert ok.requirements is not None
+
+
+def test_parsed_item_normalizes_times_and_validates_currency() -> None:
+    item = ParsedPlanItem(
+        index=0, start_time="9:00", end_time="10:30", place_name="Wawel", quote="x"
+    )
+    assert (item.start_time, item.end_time, item.day) == ("09:00", "10:30", None)
+    with pytest.raises(ValueError, match="currency"):
+        ParsedPlanItem(index=0, place_name="a", quote="x", currency="pln")
+    with pytest.raises(ValueError, match="start_time"):
+        ParsedPlanItem(index=0, place_name="a", quote="x", start_time="25:00")
+
+
+def test_place_match_needs_an_explicit_status() -> None:
+    assert PlaceMatch(item_index=0, status="unrecognized").place_id is None
+    with pytest.raises(ValueError, match="status"):
+        PlaceMatch.model_validate({"item_index": 0})
+
+
+def test_slugs_follow_the_shared_pattern() -> None:
+    assert FetchPlaceCandidatesInput(city_slug="gdansk-polska").city_slug
+    with pytest.raises(ValueError, match="city_slug"):
+        FetchPlaceCandidatesInput(city_slug="Gdańsk")

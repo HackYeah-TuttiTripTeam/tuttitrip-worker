@@ -87,20 +87,12 @@ def test_pure_modules_do_not_reach_io_layers() -> None:
 
 def test_only_agents_and_shared_llm_import_pydantic_ai() -> None:
     (
-        archrule("agents live in agents.py", use_regex=True)
+        archrule("agents and Harness live in agents.py", use_regex=True)
         .match(rf"^{PACKAGE}(\.|$)")
         .exclude(r"\.agents$", rf"^{PACKAGE}\.shared\.llm(\.|$)")
-        .should_not_import(r"^pydantic_ai(\.|$)")
-        .check(PACKAGE, only_direct_imports=True)
-    )
-
-
-def test_only_agents_and_shared_llm_import_harness() -> None:
-    (
-        archrule("Harness capabilities live in agents.py", use_regex=True)
-        .match(rf"^{PACKAGE}(\.|$)")
-        .exclude(r"\.agents$", rf"^{PACKAGE}\.shared\.llm(\.|$)")
-        .should_not_import(r"^(pydantic_ai_harness|stackone_defender)(\.|$)")
+        .should_not_import(
+            r"^(pydantic_ai|pydantic_ai_harness|stackone_defender)(\.|$)"
+        )
         .check(PACKAGE, only_direct_imports=True)
     )
 

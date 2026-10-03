@@ -86,6 +86,27 @@
     },
     "extract_offer_evidence": {
       "input": {
+        "$defs": {
+          "RequirementLabel": {
+            "properties": {
+              "key": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "label": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "label"
+            ],
+            "type": "object"
+          }
+        },
         "properties": {
           "contract_version": {
             "default": 1,
@@ -111,6 +132,21 @@
             "minItems": 1,
             "type": "array"
           },
+          "requirements": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/RequirementLabel"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "trip_id": {
             "format": "uuid",
             "type": "string"
@@ -125,7 +161,7 @@
       },
       "output": {
         "$defs": {
-          "RequirementEvidence": {
+          "EvidenceQuote": {
             "properties": {
               "confidence": {
                 "anyOf": [
@@ -140,15 +176,8 @@
                 ],
                 "default": null
               },
-              "quotes": {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 10,
-                "type": "array"
-              },
-              "requirement_key": {
-                "maxLength": 100,
+              "text": {
+                "maxLength": 1000,
                 "minLength": 1,
                 "type": "string"
               },
@@ -167,6 +196,26 @@
                   }
                 ],
                 "default": null
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          },
+          "RequirementEvidence": {
+            "properties": {
+              "quotes": {
+                "items": {
+                  "$ref": "#/$defs/EvidenceQuote"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "requirement_key": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
               }
             },
             "required": [
@@ -215,7 +264,7 @@
             "anyOf": [
               {
                 "maxLength": 100,
-                "minLength": 1,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
                 "type": "string"
               },
               {
@@ -234,11 +283,15 @@
       "output": {
         "properties": {
           "city_slug": {
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
             "type": "string"
           },
           "contract_version": {
             "default": 1,
             "type": "integer"
+          },
+          "refreshed": {
+            "type": "boolean"
           },
           "source": {
             "const": "osm",
@@ -252,6 +305,7 @@
         },
         "required": [
           "city_slug",
+          "refreshed",
           "stored"
         ],
         "type": "object"
@@ -322,7 +376,7 @@
         "properties": {
           "city_slug": {
             "maxLength": 100,
-            "minLength": 1,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
             "type": "string"
           },
           "contract_version": {
@@ -357,6 +411,30 @@
         "$defs": {
           "MatchCandidate": {
             "properties": {
+              "address": {
+                "anyOf": [
+                  {
+                    "maxLength": 300,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "category": {
+                "anyOf": [
+                  {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "name": {
                 "maxLength": 200,
                 "type": "string"
@@ -420,8 +498,7 @@
               "currency": {
                 "anyOf": [
                   {
-                    "maxLength": 3,
-                    "minLength": 3,
+                    "pattern": "^[A-Z]{3}$",
                     "type": "string"
                   },
                   {
@@ -431,9 +508,17 @@
                 "default": null
               },
               "day": {
-                "maximum": 60,
-                "minimum": 1,
-                "type": "integer"
+                "anyOf": [
+                  {
+                    "maximum": 60,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "end_time": {
                 "anyOf": [
@@ -495,7 +580,6 @@
             },
             "required": [
               "index",
-              "day",
               "place_name",
               "quote"
             ],
@@ -538,10 +622,19 @@
                   }
                 ],
                 "default": null
+              },
+              "status": {
+                "enum": [
+                  "matched",
+                  "needs_confirmation",
+                  "unrecognized"
+                ],
+                "type": "string"
               }
             },
             "required": [
-              "item_index"
+              "item_index",
+              "status"
             ],
             "type": "object"
           },
@@ -645,6 +738,14 @@
             "default": 1,
             "type": "integer"
           },
+          "locale": {
+            "default": "pl",
+            "enum": [
+              "pl",
+              "en"
+            ],
+            "type": "string"
+          },
           "plan_id": {
             "format": "uuid",
             "type": "string"
@@ -667,9 +768,28 @@
         "$defs": {
           "Justification": {
             "properties": {
-              "plan_item_id": {
+              "place_id": {
                 "maxLength": 100,
                 "minLength": 1,
+                "type": "string"
+              },
+              "profile_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "source": {
+                "enum": [
+                  "model",
+                  "template"
+                ],
                 "type": "string"
               },
               "text": {
@@ -679,8 +799,9 @@
               }
             },
             "required": [
-              "plan_item_id",
-              "text"
+              "place_id",
+              "text",
+              "source"
             ],
             "type": "object"
           }
@@ -694,7 +815,7 @@
             "items": {
               "$ref": "#/$defs/Justification"
             },
-            "maxItems": 300,
+            "maxItems": 600,
             "type": "array"
           }
         },

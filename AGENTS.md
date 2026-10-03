@@ -210,12 +210,13 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | `embed_texts` | `default` | `{contract_version, source_kind, source_id, texts}` | `{contract_version, model, dimensions, stored}` |
 | `ping` | `default` | `{contract_version, message}` | `{contract_version, message, worker_app_version}` |
 | `parse_pasted_plan` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, city_slug, provider}` | `{contract_version, items, unread, matches}` |
-| `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, provider}` | `{contract_version, evidence}` |
-| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` | `{contract_version, city_slug, source, stored}` |
-| `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, provider}` | `{contract_version, justifications}` |
+| `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence}` |
+| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored}` |
+| `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, locale, provider}` | `{contract_version, justifications}` |
 
 The last four are stubs: they validate the payload and end with `ContractError`
 code `not_implemented` until their issues land (tuttitrip-worker#23-#26).
+\[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
 
 ## Conventions
