@@ -613,9 +613,17 @@ WORKFLOWS: Final[Mapping[Workflow, WorkflowSpec]] = {
 
 EVENTS: Final[Mapping[str, type[BaseModel]]] = {PROGRESS_EVENT: Progress}
 
-SCHEDULED_WORKFLOWS: Final[Mapping[str, str]] = {"heartbeat": "*/30 * * * * *"}
-"""Internal scheduled workflows (name -> 6-field cron), never enqueued by the
-backend. ``heartbeat`` upserts ``worker_heartbeats`` every 30 seconds."""
+SCHEDULED_WORKFLOWS: Final[Mapping[str, str]] = {
+    "heartbeat": "*/30 * * * * *",
+    "reset_demo_account": "0 0 4 * * *",
+}
+"""Internal scheduled workflows (name -> 6-field cron, evaluated in
+``SCHEDULE_TIMEZONE``), never enqueued by the backend. ``heartbeat`` upserts
+``worker_heartbeats`` every 30 seconds; ``reset_demo_account`` restores the
+jury's demo account at 04:00."""
+
+SCHEDULE_TIMEZONE: Final = "Europe/Warsaw"
+"""IANA timezone of every cron expression above."""
 
 
 def queue_for(provider: LlmProvider | ProviderName) -> Queue:
