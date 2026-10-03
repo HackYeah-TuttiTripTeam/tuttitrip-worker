@@ -5,9 +5,11 @@ Order matters (see AGENTS.md, "DBOS rules"):
 1. Import every module that defines workflows, steps and agents.
 2. :func:`init_dbos` creates the DBOS singleton from settings.
 3. ``DBOS.launch()`` starts recovery and the queue runners.
-4. :func:`register_queues` persists queue limits (after launch, sync context).
+4. :func:`register_queues` persists queue limits and drops queues that left
+   the contract (after launch, sync context).
 """
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, TypedDict
@@ -16,6 +18,8 @@ from dbos import DBOS, DBOSConfig, WorkflowSerializationFormat
 
 from tuttitrip_worker.contracts import APPLICATION_NAME, PROGRESS_EVENT, Progress, Queue
 from tuttitrip_worker.shared.config.settings import Settings
+
+logger = logging.getLogger(APPLICATION_NAME)
 
 PORTABLE: Final = WorkflowSerializationFormat.PORTABLE
 """Serialization for every backend-facing workflow (JSON, not pickle)."""
@@ -78,7 +82,13 @@ def init_dbos(settings: Settings) -> None:
 
 
 def register_queues() -> None:
-    """Register (or update) every contract queue with its limits."""
+    """Register (or update) every contract queue and drop stale ones.
+
+    DBOS keeps queues in the system database, so a queue removed from the
+    contract would still be polled until its row is deleted. A stale queue
+    that still holds queued work is kept (with a warning) instead of
+    orphaning those workflows.
+    """
     for queue in Queue:
         limits = QUEUE_LIMITS[queue]
         DBOS.register_queue(
@@ -87,6 +97,19 @@ def register_queues() -> None:
             limiter=limits.limiter,
             on_conflict="always_update",
         )
+    contract_queues = {queue.value for queue in Queue}
+    for stale in DBOS.list_queues():
+        if stale.name in contract_queues or stale.application_name != APPLICATION_NAME:
+            continue
+        if DBOS.list_queued_workflows(
+            queue_name=stale.name, limit=1, load_input=False, load_output=False
+        ):
+            logger.warning(
+                "keeping stale queue %s: it still has queued work", stale.name
+            )
+            continue
+        DBOS.delete_queue(stale.name)
+        logger.info("deleted stale queue %s", stale.name)
 
 
 async def report_progress(stage: str, percent: int) -> None:
