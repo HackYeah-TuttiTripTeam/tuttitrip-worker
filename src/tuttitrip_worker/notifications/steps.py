@@ -15,7 +15,9 @@ def build_purge_batch(read_before: datetime, any_before: datetime) -> Delete:
 
     Old means created before ``read_before`` and already read, or created before
     ``any_before``. The subselect limits the batch (``DELETE`` has no ``LIMIT``
-    in PostgreSQL). Deleting sends no ``NOTIFY``: the trigger is on INSERT only.
+    in PostgreSQL), and ``FOR UPDATE SKIP LOCKED`` skips rows another transaction
+    holds (the API marking one read), so the purge never waits on a user.
+    Deleting sends no ``NOTIFY``: the trigger is on INSERT only.
 
     Args:
         read_before: Read rows created before this are deleted.
@@ -33,8 +35,12 @@ def build_purge_batch(read_before: datetime, any_before: datetime) -> Delete:
             notifications.c.created_at < any_before,
         )
     )
+    # ponytail: no index on created_at yet (asked on backend PR #165); the
+    # table holds a few thousand rows a day, a sequential scan is fine for now.
     return delete(notifications).where(
-        notifications.c.id.in_(old.limit(BATCH_SIZE).scalar_subquery())
+        notifications.c.id.in_(
+            old.limit(BATCH_SIZE).with_for_update(skip_locked=True).scalar_subquery()
+        )
     )
 
 

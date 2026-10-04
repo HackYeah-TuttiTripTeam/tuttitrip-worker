@@ -83,6 +83,9 @@ def test_an_unknown_type_or_a_bad_key_is_refused() -> None:
         draft(key="k" * 256)
 
 
+sql_marker = select(1)
+
+
 def sql(statement: ClauseElement) -> str:
     return str(statement.compile(dialect=postgresql.dialect()))
 
@@ -268,6 +271,7 @@ def test_5000_old_rows_go_in_batches_of_1000(dbos: Settings, purge_db: Engine) -
 
 def test_the_batch_statement_is_one_limited_delete() -> None:
     text = sql(purge_steps.build_purge_batch(NOW, NOW))
+    assert "FOR UPDATE SKIP LOCKED" in text  # never waits on a row the API holds
     assert text.startswith("DELETE FROM notifications WHERE notifications.id IN")
     assert "LIMIT" in text
 
@@ -275,3 +279,38 @@ def test_the_batch_statement_is_one_limited_delete() -> None:
 def test_the_purge_is_scheduled_once_a_day() -> None:
     assert "purge_notifications" in SCHEDULES
     assert SCHEDULED_WORKFLOWS["purge_notifications"] == "0 30 3 * * *"
+
+
+def test_a_lost_notification_does_not_fail_a_finished_plan(
+    client: DBOSClient,
+    dbos: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    attempts: list[ClauseElement] = []
+
+    @asynccontextmanager
+    async def failing_transaction() -> AsyncGenerator[object]:
+        attempts.append(sql_marker)
+        msg = "the database refused the insert"
+        raise ConnectionError(msg)
+        yield  # pragma: no cover
+
+    saved: list[str] = []
+
+    async def fake_save(workflow_id: str, name: str, result: dict[str, Any]) -> None:
+        del name, result
+        saved.append(workflow_id)
+
+    monkeypatch.setattr(notifications, "transaction", failing_transaction)
+    monkeypatch.setattr(job_results, "save_job_result", fake_save)
+    with catalog.override(TestModel(custom_output_args=PLAN)):
+        handle = enqueue(
+            client, dbos, Workflow.GENERATE_TRIP_PLAN, plan_payload(), user="auth0|h"
+        )
+        output = handle.get_result()  # no PortableWorkflowError
+
+    assert output["destination"] == "Kraków"
+    assert saved == [handle.get_workflow_id()]
+    assert len(attempts) == 3  # the step retried, then gave up
+    assert "was not written" in caplog.text

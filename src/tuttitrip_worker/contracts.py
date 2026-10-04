@@ -293,6 +293,13 @@ class PlaceMatch(BaseModel):
     host confirms it or picks from ``candidates``) or ``unrecognized``
     (``place_id`` is ``None``). ``ParsePastedPlanOutput.matches`` has one entry
     per item.
+
+    ``confidence`` depends on who decided. Model pick or "none of these": the
+    decision model's margin (0..1, not a probability), ``None`` when a
+    language-model fallback answered. No model (switched off, down, or no
+    candidates): the name similarity of the best candidate for ``matched``;
+    for ``unrecognized`` it is ``None``, so a missing value there means "no
+    model said so", never "sure".
     """
 
     model_config = ConfigDict(frozen=True)

@@ -1,11 +1,13 @@
 """Planning workflows: durable LLM drafts of trip plans."""
 
+import logging
 from typing import Any
 from uuid import UUID
 
 from dbos import DBOS
 
 from tuttitrip_worker.contracts import (
+    APPLICATION_NAME,
     GenerateTripPlanInput,
     GenerateTripPlanOutput,
     LlmProvider,
@@ -20,6 +22,8 @@ from tuttitrip_worker.shared.db import job_results
 from tuttitrip_worker.shared.db.notifications import notify_user
 from tuttitrip_worker.shared.dbos.runtime import PORTABLE, report_progress
 from tuttitrip_worker.shared.llm.models import model_id
+
+logger = logging.getLogger(APPLICATION_NAME)
 
 
 @DBOS.workflow(name=Workflow.GENERATE_TRIP_PLAN.value, serialization_type=PORTABLE)
@@ -59,6 +63,9 @@ async def _notify_plan_ready(
 ) -> None:
     """Tell the user who started the job that the plan is ready.
 
+    A failure (after the step's retries) is logged and swallowed: the plan is
+    already saved, so a notification must not turn a finished job into an error.
+
     The recipient is the workflow's authenticated user (the backend sets it to
     the caller's ``sub`` when it enqueues); without one nobody is told. The key
     names the trip and this workflow, so a retried step adds nothing.
@@ -78,7 +85,10 @@ async def _notify_plan_ready(
         actions=["open_plan"],
         dedupe_key=f"plan_ready:{trip_id}:{workflow_id}",
     )
-    await notify_user(user, draft.model_dump(mode="json"))
+    try:
+        await notify_user(user, draft.model_dump(mode="json"))
+    except Exception:
+        logger.exception("plan_ready notification for trip %s was not written", trip_id)
 
 
 @DBOS.workflow(name=Workflow.WRITE_JUSTIFICATIONS.value, serialization_type=PORTABLE)

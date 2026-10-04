@@ -1,5 +1,7 @@
 """I/O steps of the linter domain (database reads)."""
 
+import asyncio
+import logging
 from typing import Any, Final
 from uuid import UUID
 
@@ -52,7 +54,10 @@ async def load_pasted_plan(document_id: str, trip_id: str) -> str | None:
 
 
 MAX_CITY_PLACES: Final = 20000
-"""Most places of one city read for matching (a safety cap, Berlin has fewer)."""
+"""Most places of one city read for matching (a safety cap, Berlin has fewer);
+beyond it the step logs a warning and ranks only the first ones by id."""
+
+logger = logging.getLogger(__name__)
 
 
 def build_city_places_select(city_slug: str) -> Select[Any, Any, Any]:
@@ -68,7 +73,7 @@ def build_city_places_select(city_slug: str) -> Select[Any, Any, Any]:
         select(places.c.id, places.c.name, places.c.category)
         .where(places.c.city_slug == city_slug)
         .order_by(places.c.id)
-        .limit(MAX_CITY_PLACES)
+        .limit(MAX_CITY_PLACES + 1)
     )
 
 
@@ -92,10 +97,33 @@ async def rank_candidates(city_slug: str, names: list[str]) -> dict[str, list[An
             .mappings()
             .all()
         )
+    if len(rows) > MAX_CITY_PLACES:
+        logger.warning(
+            "city %s has more than %d places: matching sees only the first ones",
+            city_slug,
+            MAX_CITY_PLACES,
+        )
+        rows = rows[:MAX_CITY_PLACES]
     catalog_places = [
         CatalogPlace(str(row["id"]), str(row["name"]), str(row["category"]))
         for row in rows
     ]
+    # difflib is CPU work (names x places): keep it off the event loop.
+    return await asyncio.to_thread(_rank_all, names, catalog_places)
+
+
+def _rank_all(
+    names: list[str], catalog_places: list[CatalogPlace]
+) -> dict[str, list[Any]]:
+    """Rank the places for every name (pure CPU, runs in a thread).
+
+    Args:
+        names: Distinct place names of the parsed items.
+        catalog_places: Places of the city.
+
+    Returns:
+        ``RankedPlace`` lists as JSON, per name.
+    """
     return {
         name: [p.model_dump(mode="json") for p in rank(name, catalog_places)]
         for name in names

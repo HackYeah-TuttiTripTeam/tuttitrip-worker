@@ -152,10 +152,8 @@ async def choose_place(
     Raises:
         UserError: A model is not configured (not caught on purpose).
     """
-    options = {
-        f"c{number}": f"{place.name} ({place.category})"
-        for number, place in enumerate(ranked, start=1)
-    }
+    by_key = {f"c{number}": place for number, place in enumerate(ranked, start=1)}
+    options = {key: f"{place.name} ({place.category})" for key, place in by_key.items()}
     options[NONE_KEY] = "None of the above: the item is not in this list."
     block = f"{name}\n{quote}"
     tag = data_tag(block, seed)
@@ -179,6 +177,4 @@ async def choose_place(
     reported = list(reported_confidences(last).values())
     confidence = min(reported) if reported else None
     answer = result.output
-    if answer == NONE_KEY:
-        return None, confidence
-    return ranked[int(answer.removeprefix("c")) - 1], confidence
+    return by_key.get(answer), confidence  # "none" is not a key: no pick
