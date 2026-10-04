@@ -10,6 +10,7 @@ from sqlalchemy import Select, select
 
 from tuttitrip_worker.linter.logic.candidates import rank
 from tuttitrip_worker.linter.schemas import CatalogPlace
+from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.db.engine import transaction
 from tuttitrip_worker.shared.db.tables import pasted_documents, places
 
@@ -36,7 +37,7 @@ def build_document_select(document_id: UUID, trip_id: UUID) -> Select[Any]:
     )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def load_pasted_plan(document_id: str, trip_id: str) -> str | None:
     """Read the pasted plan text (checkpointed, so a resume does not re-read it).
 
@@ -77,7 +78,7 @@ def build_city_places_select(city_slug: str) -> Select[Any, Any, Any]:
     )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def rank_candidates(city_slug: str, names: list[str]) -> dict[str, list[Any]]:
     """Rank the city's catalog places for each pasted name.
 

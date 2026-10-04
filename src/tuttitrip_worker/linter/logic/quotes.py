@@ -22,6 +22,7 @@ from typing import Final, Literal, NamedTuple
 from pydantic import ValidationError
 
 from tuttitrip_worker.contracts import ParsedPlanItem, UnreadItem
+from tuttitrip_worker.linter.constants import LINE_BREAKS, QUOTE_PREVIEW_CHARS
 from tuttitrip_worker.linter.schemas import DraftPlanItem
 from tuttitrip_worker.quotes import find_quote
 
@@ -88,7 +89,7 @@ def check_item(draft: DraftPlanItem, text: str) -> ItemCheck:
             None, "quote_not_in_text", "the quote is not in the text (or is too short)"
         )
     problem = None
-    if "\n" in span or "\r" in span:
+    if any(char in span for char in LINE_BREAKS):
         problem = "the quote spans more than one line; quote a single line"
     elif len(span) > QUOTE_MAX_CHARS:
         problem = f"the quote is longer than {QUOTE_MAX_CHARS} characters"
@@ -122,7 +123,7 @@ def problems(items: Sequence[DraftPlanItem], text: str) -> list[str]:
     for item in items:
         problem = check_item(item, text).problem
         if problem is not None:
-            lines.append(f"- {item.quote[:80]!r}: {problem}")
+            lines.append(f"- {item.quote[:QUOTE_PREVIEW_CHARS]!r}: {problem}")
     return lines
 
 

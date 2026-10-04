@@ -14,6 +14,9 @@ logger = logging.getLogger("tuttitrip_dbos_dashboard")
 MAX_LIMIT = 500
 DEFAULT_LIMIT = 100
 # Set by tuttitrip-gateway from the oauth2-proxy session (display only).
+HEALTH_PATH = "/healthz"
+OVERVIEW_PATH = "/"
+WORKFLOW_PATH = "/workflow"
 USER_HEADER = "X-Auth-Request-Email"
 HTML = "text/html; charset=utf-8"
 CSP = "default-src 'none'; style-src 'unsafe-inline'"
@@ -46,12 +49,12 @@ class Dashboard:
         """
         url = urlsplit(path)
         query = {k: v[-1] for k, v in parse_qs(url.query).items()}
-        if url.path == "/healthz":
+        if url.path == HEALTH_PATH:
             return HTTPStatus.OK, "ok", "text/plain; charset=utf-8"
         try:
-            if url.path == "/":
+            if url.path == OVERVIEW_PATH:
                 return self.overview(query, user)
-            if url.path == "/workflow":
+            if url.path == WORKFLOW_PATH:
                 return self.workflow(query, user)
         except Exception:
             logger.exception("request failed: %s", url.path)

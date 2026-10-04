@@ -6,6 +6,7 @@ from uuid import UUID
 from dbos import DBOS
 from sqlalchemy import Select, select
 
+from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.db.engine import transaction
 from tuttitrip_worker.shared.db.tables import pasted_documents
 
@@ -29,7 +30,7 @@ def offer_query(document_id: UUID, trip_id: UUID) -> Select[Any]:
     )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def load_offer_text(document_id: str, trip_id: str) -> str | None:
     """Read the pasted offer (the worker has SELECT on ``pasted_documents`` only).
 

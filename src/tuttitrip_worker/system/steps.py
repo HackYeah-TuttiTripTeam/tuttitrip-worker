@@ -29,14 +29,18 @@ def current_heartbeat() -> Heartbeat:
     )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def upsert_heartbeat() -> None:
     """Insert or refresh this worker's row in ``worker_heartbeats``."""
     row = current_heartbeat().model_dump()
     statement = insert(worker_heartbeats).values(**row)
     statement = statement.on_conflict_do_update(
         index_elements=[worker_heartbeats.c.worker_id],
-        set_={key: statement.excluded[key] for key in row if key != "worker_id"},
+        set_={
+            key: statement.excluded[key]
+            for key in row
+            if key != worker_heartbeats.c.worker_id.name
+        },
     )
     async with transaction() as connection:
         await connection.execute(statement)

@@ -18,8 +18,10 @@ from tuttitrip_worker.contracts import (
     parse_input,
 )
 from tuttitrip_worker.planning.agents import planner_agent
+from tuttitrip_worker.planning.constants import PROGRESS_DRAFTING, PROGRESS_SAVING
 from tuttitrip_worker.shared.db import job_results
 from tuttitrip_worker.shared.db.notifications import notify_user
+from tuttitrip_worker.shared.dbos.constants import PROGRESS_DONE
 from tuttitrip_worker.shared.dbos.runtime import PORTABLE, report_progress
 from tuttitrip_worker.shared.llm.models import model_id
 
@@ -37,13 +39,13 @@ async def generate_trip_plan(payload: dict[str, Any]) -> dict[str, Any]:
         JSON object matching ``GenerateTripPlanOutput``.
     """
     request = parse_input(GenerateTripPlanInput, payload)
-    await report_progress("drafting", 10)
+    await report_progress(*PROGRESS_DRAFTING)
     # Every model request inside this call is a DBOS step (DBOSDurability).
     result = await planner_agent.run(
         f"Trip {request.trip_id}: {request.request}",
         model=model_id(LlmProvider(request.provider)),
     )
-    await report_progress("saving", 90)
+    await report_progress(*PROGRESS_SAVING)
     draft = result.output
     output = GenerateTripPlanOutput(
         destination=draft.destination, days=draft.days, highlights=draft.highlights
@@ -54,7 +56,7 @@ async def generate_trip_plan(payload: dict[str, Any]) -> dict[str, Any]:
             workflow_id, Workflow.GENERATE_TRIP_PLAN.value, output
         )
     await _notify_plan_ready(request.trip_id, output["destination"], workflow_id)
-    await report_progress("done", 100)
+    await report_progress(*PROGRESS_DONE)
     return output
 
 

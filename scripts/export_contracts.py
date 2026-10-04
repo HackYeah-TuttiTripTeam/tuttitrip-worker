@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tuttitrip_worker.contracts import contract_json
 
+CHECK_FLAG = "--check"
 TARGET = Path(__file__).resolve().parents[1] / "contracts" / "jobs.schema.json"
 
 
@@ -18,7 +19,7 @@ def main() -> int:
         Process exit code.
     """
     content = contract_json()
-    if "--check" in sys.argv[1:]:
+    if CHECK_FLAG in sys.argv[1:]:
         current = TARGET.read_text(encoding="utf-8") if TARGET.exists() else ""
         if current != content:
             print(f"{TARGET} is out of date; run scripts/export_contracts.py")

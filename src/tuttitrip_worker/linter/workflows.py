@@ -13,9 +13,16 @@ from tuttitrip_worker.contracts import (
 )
 from tuttitrip_worker.linter import steps
 from tuttitrip_worker.linter.agents import read_pasted_plan
+from tuttitrip_worker.linter.constants import (
+    PROGRESS_LOADING,
+    PROGRESS_MATCHING,
+    PROGRESS_READING,
+    PROGRESS_SAVING,
+)
 from tuttitrip_worker.linter.logic.quotes import split_items
 from tuttitrip_worker.linter.services.match import match_items
 from tuttitrip_worker.shared.db import job_results
+from tuttitrip_worker.shared.dbos.constants import PROGRESS_DONE
 from tuttitrip_worker.shared.dbos.runtime import PORTABLE, report_progress
 
 
@@ -42,23 +49,23 @@ async def parse_pasted_plan(payload: dict[str, Any]) -> dict[str, Any]:
             structured answer (``model_output_invalid``).
     """
     request = parse_input(ParsePastedPlanInput, payload)
-    await report_progress("loading", 5)
+    await report_progress(*PROGRESS_LOADING)
     text = await steps.load_pasted_plan(str(request.document_id), str(request.trip_id))
     if text is None:
         raise document_not_found(request.document_id, steps.PLAN_KIND)
-    await report_progress("reading", 15)
+    await report_progress(*PROGRESS_READING)
     draft = await read_pasted_plan(text, str(request.document_id), request.city_slug)
     items, unread = split_items(draft.items, text)
-    await report_progress("matching", 60)
+    await report_progress(*PROGRESS_MATCHING)
     matches = await match_items(items, request.city_slug, str(request.document_id))
     output = ParsePastedPlanOutput(
         items=items, unread=unread, matches=matches
     ).model_dump(mode="json")
-    await report_progress("saving", 90)
+    await report_progress(*PROGRESS_SAVING)
     workflow_id = DBOS.workflow_id
     if workflow_id is not None:
         await job_results.save_job_result(
             workflow_id, Workflow.PARSE_PASTED_PLAN.value, output
         )
-    await report_progress("done", 100)
+    await report_progress(*PROGRESS_DONE)
     return output

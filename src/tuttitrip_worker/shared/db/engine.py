@@ -21,13 +21,14 @@ def get_engine() -> AsyncEngine:
     Returns:
         The cached async engine.
     """
-    url = make_url(get_settings().worker_database_url.get_secret_value())
+    settings = get_settings()
+    url = make_url(settings.worker_database_url.get_secret_value())
     return create_async_engine(
         # The env file names plain `postgresql://`; use async psycopg 3.
         url.set(drivername="postgresql+psycopg"),
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=5,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
     )
 
 
