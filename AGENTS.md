@@ -58,7 +58,8 @@ src/tuttitrip_worker/
   accommodation/       extract_offer_evidence: Qwen quotes + decision-model verdicts
   embeddings/          embed_texts -> pgvector; logic/ = pure row building
   demo/                daily reset of the jury demo account (calls the backend)
-  places/              fetch_place_candidates: Nominatim + Overpass -> cities/places (OSM policies in steps.py)
+  places/              fetch_place_candidates: Nominatim + Overpass -> cities/places (OSM policies in steps.py), then web research of the top places
+                       (agents.py, `enrich` settings): hours, prices, visit time, always unverified with a cited source_url
 src/tuttitrip_dbos_dashboard/  read-only DBOS dashboard (not a worker domain), see below
 contracts/jobs.schema.json   rendered contract, compared with the backend mirror
 deploy/                host deployment scripts (bash)
@@ -225,13 +226,13 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | --- | --- | --- | --- |
 | `generate_trip_plan` | `openrouter` (or `local_llm` for `provider=local`) | `{contract_version, trip_id, request, provider}` | `{contract_version, destination, days, highlights}` |
 | `embed_texts` | `default` | `{contract_version, source_kind, source_id, texts}` | `{contract_version, model, dimensions, stored}` |
-| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` | `{contract_version, city_slug, source, refreshed, stored}` |
+| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` | `{contract_version, city_slug, source, refreshed, stored, enriched}` |
 | `parse_expense_text` | `local_llm` | `{contract_version, trip_id, text, locale}` | `{contract_version, amount_minor, currency, description, payer_name, included_names, excluded_names, confidence}` |
 | `read_receipt` | `local_llm` | `{contract_version, trip_id, evidence_id}` | `{contract_version, amount_minor, currency, spent_on, merchant, category, needs_confirmation, reasons}` |
 | `ping` | `default` | `{contract_version, message}` | `{contract_version, message, worker_app_version}` |
 | `parse_pasted_plan` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, city_slug, provider}` | `{contract_version, items, unread, matches}` |
 | `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence: [{requirement_key, quotes: [{text, verdict?, confidence?}]}]}`; `quotes == []` = silent offer, `verdict` null = judge unavailable |
-| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored}` |
+| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored, enriched}` |
 | `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, locale, provider}` | `{contract_version, justifications}` |
 
 `parse_pasted_plan` reads the plan by `document_id` + `trip_id` (SELECT on

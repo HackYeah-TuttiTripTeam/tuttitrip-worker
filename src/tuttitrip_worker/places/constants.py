@@ -8,6 +8,9 @@ PROGRESS_LOCATING: Final = ("locating", 10)
 PROGRESS_FETCHING: Final = ("fetching", 40)
 """``progress`` event while Overpass is queried."""
 
+PROGRESS_ENRICHING: Final = ("enriching", 70)
+"""``progress`` event while the web research runs."""
+
 OSM_AREA_ID_OFFSET: Final = 3_600_000_000
 """Overpass area id = this offset + the OSM relation id."""
 
