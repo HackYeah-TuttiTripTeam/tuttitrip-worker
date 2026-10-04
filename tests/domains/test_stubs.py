@@ -27,7 +27,6 @@ from tuttitrip_worker.contracts import (
 from tuttitrip_worker.shared.config.settings import Settings
 
 STUBS: dict[Workflow, dict[str, Any]] = {
-    Workflow.FETCH_PLACE_CANDIDATES: {"city_slug": "krakow"},
     Workflow.WRITE_JUSTIFICATIONS: {"plan_id": str(uuid4())},
 }
 
@@ -45,8 +44,8 @@ def test_stub_ends_with_not_implemented(
 
 
 def test_stub_still_validates_the_payload(client: DBOSClient, dbos: Settings) -> None:
-    payload = {"contract_version": CONTRACT_VERSION}  # no city given
-    handle = enqueue(client, dbos, Workflow.FETCH_PLACE_CANDIDATES, payload)
+    payload = {"contract_version": CONTRACT_VERSION}  # no plan id given
+    handle = enqueue(client, dbos, Workflow.WRITE_JUSTIFICATIONS, payload)
     with pytest.raises(PortableWorkflowError) as info:
         handle.get_result()
     assert info.value.code == ErrorCode.INVALID_PAYLOAD.value
