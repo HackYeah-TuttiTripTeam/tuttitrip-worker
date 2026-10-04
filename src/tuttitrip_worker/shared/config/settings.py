@@ -122,6 +122,7 @@ class PlanningSettings(BaseModel):
         ),
     )
 
+
 class LinterSettings(BaseModel):
     """Matching of pasted plan items to the catalog."""
 
