@@ -18,6 +18,11 @@ Workflowy, kolejki i kontrakt należą do tego repo.
 Solver i inne reguły deterministyczne nie zależą od LLM: agenci przygotowują
 szkice, decyzje podejmuje czysty kod, a testy architektury tego pilnują.
 
+![Plansza „Gdzie pracuje AI”: sześć kart (wywiad głosem i tekstem, profil osoby z jednego zdania, nagłe zdarzenia w podróży, uzasadnienie planu, TuttiTrip w ChatGPT i Claude.ai, mapy i kalendarz) ze statusem i nazwami modeli, pod spodem pasek o Pydantic AI.](docs/readme/13-ai.webp)
+
+> [!NOTE]
+> Opis całego projektu, plansze, zrzuty aplikacji i instrukcja uruchomienia wszystkich części są w repozytorium zbiorczym [tuttitrip](https://github.com/HackYeah-TuttiTripTeam/tuttitrip). TuttiTrip powstał z pomocą asystentów kodowania (Claude Code, Codex). Ludzie z zespołu odpowiadali za architekturę rozwiązania, rozplanowanie funkcji, działanie aplikacji i to, jak się z niej korzysta.
+
 ## Wymagania
 
 - [uv](https://docs.astral.sh/uv/) i Python 3.14 (uv sam go pobierze),
@@ -90,6 +95,17 @@ CI uruchamia te same cztery komendy i dodatkowo sprawdza, czy
 `contracts/jobs.schema.json` jest aktualny.
 
 ## Architektura
+
+![Diagram architektury w czterech kolumnach: ludzie, aplikacja, backend oraz worker i modele, połączone kropkowanymi liniami, pod nim lista technologii.](docs/readme/14-stack.webp)
+
+Dwa przykłady pracy workera (plansze na danych przykładowych):
+
+<table>
+  <tr>
+    <td width="50%"><img width="100%" src="docs/readme/07-settle.webp" alt="Telefon z listą wydatków wyjazdu, obok suma 586 zł, „3 przelewy zamiast 6” i niepewny odczyt paragonu z przerywanym obrysem."><br><sub>Model odczytuje paragon albo wpis wydatku, a niepewny odczyt czeka na potwierdzenie. Saldo i przelewy liczy kod.</sub></td>
+    <td width="50%"><img width="100%" src="docs/readme/06-replan.webp" alt="Telefon z planem dnia po komunikacie „Silny deszcz od 11:00”: muzea zamiast parku i molo, obok panel „Co sprawdził kod” z zerem problemów."><br><sub>Nagłe zdarzenie: model zamienia „deszcz od 11:00” na warunki, solver przelicza resztę dnia (w budowie).</sub></td>
+  </tr>
+</table>
 
 Kod jest podzielony na pionowe plastry (vertical slices):
 
