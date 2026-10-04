@@ -285,14 +285,26 @@ def test_an_existing_city_is_never_overwritten() -> None:
     assert "relation_id" not in text
 
 
-def test_state_queries_read_city_marker_and_attempts() -> None:
+def test_state_queries_read_city_fetches_and_attempts() -> None:
     assert "FROM cities" in sql(steps.build_city_select("sopot"))
-    marker = sql(steps.build_marker_select("sopot"))
-    assert "job_results.workflow_id" in marker
+    fetch = sql(steps.build_fetch_select("sopot"))
+    assert "FROM city_fetches" in fetch
+    assert "city_fetches.city_slug =" in fetch
     recent = sql(steps.build_recent_attempts_select(datetime.now(UTC)))
     assert "count(*)" in recent
-    assert "job_results.result ->>" in recent
-    assert "LIKE" in recent
+    assert "FROM city_fetch_attempts" in recent
+    assert "reserved_at >" in recent
+    assert "job_results" not in fetch + recent
+
+
+def test_the_fetch_is_an_upsert_per_city_and_a_reservation_is_idempotent() -> None:
+    now = datetime.now(UTC)
+    upsert = sql(steps.build_fetch_upsert("sopot", SOPOT, 5, now))
+    assert "INSERT INTO city_fetches" in upsert
+    assert "ON CONFLICT (city_slug) DO UPDATE" in upsert
+    attempt = sql(steps.build_attempt_insert("wf-a", "sopot", now))
+    assert "INSERT INTO city_fetch_attempts" in attempt
+    assert "ON CONFLICT (workflow_id) DO NOTHING" in attempt
 
 
 # --- the steps over a fake network ---------------------------------------------------
@@ -719,7 +731,7 @@ def test_a_spent_daily_budget_stops_before_any_request(
 
 
 class Ledger:
-    """In-memory stand-in for the reservation rows in job_results."""
+    """In-memory stand-in for the rows of city_fetch_attempts."""
 
     def __init__(self) -> None:
         self.rows: list[str] = []
@@ -740,7 +752,7 @@ class LedgerConnection:
             compiled = statement.compile(dialect=postgresql.dialect())
             self.ledger.rows.append(str(compiled.params["workflow_id"]))
             return LedgerResult(0)
-        if "job_results.workflow_id =" in text:  # this workflow's own row
+        if "city_fetch_attempts.workflow_id =" in text:  # this workflow's own row
             params = statement.compile(dialect=postgresql.dialect()).params
             return LedgerResult(self.ledger.rows.count(params["workflow_id_1"]))
         return LedgerResult(len(self.ledger.rows))  # the last 24 hours
@@ -778,7 +790,7 @@ def test_failed_attempts_count_and_a_recovered_workflow_reserves_once(
         ]
 
     assert asyncio.run(scenario()) == [True, True, False, True]
-    assert ledger.rows == ["osm-attempt:wf-a", "osm-attempt:wf-b"]  # no 3rd, no repeat
+    assert ledger.rows == ["wf-a", "wf-b"]  # no 3rd, no repeat
 
 
 def test_an_unknown_city_is_reported(
@@ -824,8 +836,7 @@ def test_geocoded_city_round_trips_through_json() -> None:
     assert GeocodedCity.model_validate(city.model_dump(mode="json")) == city
 
 
-def test_the_refresh_marker_is_fresh_for_refresh_days_only() -> None:
-    assert steps.marker_id("sopot") == "osm-fetch:sopot"
+def test_the_refresh_period_is_at_least_a_day() -> None:
     assert timedelta(days=Settings(_env_file=None).osm.refresh_days) >= timedelta(
         days=1
     )

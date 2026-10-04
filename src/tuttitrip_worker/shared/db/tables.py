@@ -131,6 +131,26 @@ places = Table(
     Column("source", String(16), nullable=False),
 )
 
+# OSM fetch state, SELECT/INSERT/UPDATE for the worker (backend#187): the last
+# fetch of a city (one row per city, it also starts the refresh period) and one
+# reservation row per `fetch_place_candidates` workflow (the daily Overpass quota).
+city_fetches = Table(
+    "city_fetches",
+    metadata,
+    Column("city_slug", String(64), primary_key=True),
+    Column("osm_relation_id", BigInteger, nullable=False),
+    Column("fetched_at", DateTime(timezone=True), nullable=False),
+    Column("stored", Integer, nullable=False),
+)
+
+city_fetch_attempts = Table(
+    "city_fetch_attempts",
+    metadata,
+    Column("workflow_id", String(300), primary_key=True),
+    Column("city_slug", String(64), nullable=False),
+    Column("reserved_at", DateTime(timezone=True), nullable=False),
+)
+
 worker_heartbeats = Table(
     "worker_heartbeats",
     metadata,
