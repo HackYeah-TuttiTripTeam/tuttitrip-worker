@@ -60,3 +60,84 @@ class PlaceRow(BaseModel):
     cuisine: str | None = None
     diet_tags: list[str] = Field(default_factory=list)
     amenities: list[str] = Field(default_factory=list)
+
+
+# --- web research (enrichment) -------------------------------------------------------
+
+
+class PriceFact(BaseModel):
+    """A ticket price the model read on a page."""
+
+    category: str = Field(
+        description="adult, child, senior, student, reduced or family."
+    )
+    amount: float = Field(ge=0)
+    currency: str = Field(description="ISO 4217 code, for example EUR.")
+    source_url: str = Field(description="The page that states this price.")
+
+
+class PlaceFacts(BaseModel):
+    """What the research model returns for one place; every field is optional.
+
+    Leave a field empty when no page states it. Never guess.
+    """
+
+    opening_hours: dict[str, list[str]] | None = Field(
+        default=None,
+        description=(
+            "Keys mon..sun, values like ['09:30-17:30'] (24h, city-local; a day "
+            "that is closed is left out)."
+        ),
+    )
+    hours_source_url: str | None = None
+    prices: list[PriceFact] = Field(default_factory=list)
+    visit_min: int | None = Field(
+        default=None, description="Typical visit length in minutes, from a source."
+    )
+    indoor: bool | None = None
+    child_friendly: bool | None = None
+    description: str | None = Field(
+        default=None, description="One or two plain sentences."
+    )
+
+
+class ResearchResult(BaseModel):
+    """One researched place: the raw facts, the URLs the run cited and its cost."""
+
+    place_id: str
+    facts: PlaceFacts | None
+    cited_urls: list[str] = Field(default_factory=list)
+    cost_usd: float = 0.0
+
+
+class CleanPrice(BaseModel):
+    """A price that passed the checks (stored with ``verified = false``)."""
+
+    category: str
+    amount: float
+    currency: str
+    source_url: str
+
+
+class CleanFacts(BaseModel):
+    """Facts that passed the checks; ``None`` means nothing usable was found."""
+
+    opening_hours: dict[str, Any] | None = None
+    hours_source_url: str | None = None
+    prices: list[CleanPrice] = Field(default_factory=list)
+    visit_min: int | None = None
+    indoor: bool | None = None
+    child_friendly: bool | None = None
+    description: str | None = None
+
+
+class EnrichTarget(BaseModel):
+    """A place picked for research."""
+
+    place_id: str
+    name: str
+    category: str
+    lat: float
+    lon: float
+    city: str
+    country: str | None = None

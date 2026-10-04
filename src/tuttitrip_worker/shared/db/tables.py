@@ -25,6 +25,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     MetaData,
+    Numeric,
     String,
     Table,
     Text,
@@ -140,6 +141,29 @@ places = Table(
     Column("diet_tags", ARRAY(String(32)), nullable=False),
     Column("amenities", ARRAY(String(32)), nullable=False),
     Column("source", String(16), nullable=False),
+    # Web research (fetch_place_candidates): provenance of the hours, the visit
+    # time and a short text, all unverified. `enriched_at` is the cache stamp.
+    Column("hours_source_url", Text),
+    Column("hours_checked_at", DateTime(timezone=True)),
+    Column("typical_visit_min", Integer),
+    Column("description", Text),
+    Column("child_friendly", Boolean),
+    Column("enriched_at", DateTime(timezone=True)),
+)
+
+# Ticket prices: SELECT, INSERT and UPDATE for the worker. Unique key:
+# (place_id, ticket_category). The worker only writes unverified rows.
+place_prices = Table(
+    "place_prices",
+    metadata,
+    Column("id", Uuid, primary_key=True, server_default=func.gen_random_uuid()),
+    Column("place_id", Uuid, nullable=False),
+    Column("ticket_category", String(16), nullable=False),
+    Column("amount", Numeric(10, 2), nullable=False),
+    Column("currency", String(3), nullable=False),
+    Column("source_url", Text),
+    Column("verified", Boolean, nullable=False),
+    Column("checked_at", DateTime(timezone=True)),
 )
 
 # The inbox the frontend reads (backend#133): the worker may SELECT, INSERT and

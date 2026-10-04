@@ -385,6 +385,11 @@ def db(monkeypatch: pytest.MonkeyPatch) -> Db:
         fake.reservations.append(workflow_id)
         return fake.budget_left
 
+    async def no_research_targets(slug: str) -> list[dict[str, Any]]:
+        del slug  # the web research has its own tests (test_place_enrichment)
+        return []
+
+    monkeypatch.setattr(steps, "select_research_targets", no_research_targets)
     monkeypatch.setattr(steps, "reserve_overpass_slot", fake_reserve)
     monkeypatch.setattr(steps, "transaction", fake_transaction)
     monkeypatch.setattr(steps, "store_city", fake_store_city)
