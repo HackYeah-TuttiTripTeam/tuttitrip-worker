@@ -8,13 +8,14 @@ from tuttitrip_worker.contracts import WORKFLOWS, Workflow
 from tuttitrip_worker.shared.config.settings import Settings
 
 
-def enqueue(
+def enqueue(  # ruff: ignore[too-many-arguments] mirrors the backend's enqueue
     client: DBOSClient,
     settings: Settings,
     name: Workflow,
     payload: dict[str, Any],
     *,
     workflow_id: str | None = None,
+    user: str | None = None,
 ) -> WorkflowHandle[Any]:
     """Enqueue a contract workflow the way the backend's DBOSClient does."""
     options: EnqueueOptions = {
@@ -25,4 +26,6 @@ def enqueue(
     }
     if workflow_id is not None:
         options["workflow_id"] = workflow_id
+    if user is not None:
+        options["authenticated_user"] = user
     return client.enqueue(options, payload)

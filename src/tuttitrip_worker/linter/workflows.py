@@ -15,10 +15,12 @@ from tuttitrip_worker.linter import steps
 from tuttitrip_worker.linter.agents import read_pasted_plan
 from tuttitrip_worker.linter.constants import (
     PROGRESS_LOADING,
+    PROGRESS_MATCHING,
     PROGRESS_READING,
     PROGRESS_SAVING,
 )
 from tuttitrip_worker.linter.logic.quotes import split_items
+from tuttitrip_worker.linter.services.match import match_items
 from tuttitrip_worker.shared.db import job_results
 from tuttitrip_worker.shared.dbos.constants import PROGRESS_DONE
 from tuttitrip_worker.shared.dbos.runtime import PORTABLE, report_progress
@@ -29,10 +31,11 @@ async def parse_pasted_plan(payload: dict[str, Any]) -> dict[str, Any]:
     """Turn a pasted plan into items that each carry a verbatim quote.
 
     Reads the text by document id, lets the parser agent extract items (every
-    model request is a DBOS step), keeps only items the text backs up and
-    stores the result in ``job_results``. The queue follows ``provider``; the
-    model is always the catalog's chat model (Qwen on the GB10, OpenRouter as
-    fallback), which is the agent's default.
+    model request is a DBOS step), keeps only items the text backs up, matches
+    them to the city's catalog places and stores the result in ``job_results``.
+    The queue follows ``provider``; the model is always the catalog's chat
+    model (Qwen on the GB10, OpenRouter as fallback), which is the agent's
+    default.
 
     Args:
         payload: JSON object matching ``ParsePastedPlanInput``.
@@ -53,8 +56,11 @@ async def parse_pasted_plan(payload: dict[str, Any]) -> dict[str, Any]:
     await report_progress(*PROGRESS_READING)
     draft = await read_pasted_plan(text, str(request.document_id), request.city_slug)
     items, unread = split_items(draft.items, text)
-    # The catalog matching step (tuttitrip-worker#24) fills `matches` here.
-    output = ParsePastedPlanOutput(items=items, unread=unread).model_dump(mode="json")
+    await report_progress(*PROGRESS_MATCHING)
+    matches = await match_items(items, request.city_slug, str(request.document_id))
+    output = ParsePastedPlanOutput(
+        items=items, unread=unread, matches=matches
+    ).model_dump(mode="json")
     await report_progress(*PROGRESS_SAVING)
     workflow_id = DBOS.workflow_id
     if workflow_id is not None:

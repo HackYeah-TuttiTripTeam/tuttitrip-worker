@@ -109,6 +109,13 @@ class OsmSettings(BaseModel):
     overpass_daily_limit: int = Field(default=50, ge=1, le=100)
 
 
+class LinterSettings(BaseModel):
+    """Matching of pasted plan items to the catalog."""
+
+    # Off = only the similarity threshold decides (no decision-model call).
+    match_with_model: bool = True
+
+
 class Settings(BaseSettings):
     """Root settings object for the worker."""
 
@@ -146,6 +153,7 @@ class Settings(BaseSettings):
     llm: LlmSettings = Field(default_factory=LlmSettings)
     demo: DemoSettings = Field(default_factory=DemoSettings)
     osm: OsmSettings = Field(default_factory=OsmSettings)
+    linter: LinterSettings = Field(default_factory=LinterSettings)
 
     def system_database_url(self) -> str:
         """DBOS system database URL (defaults to the application database).

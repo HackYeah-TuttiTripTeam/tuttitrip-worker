@@ -198,7 +198,9 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 - **Data.** The backend owns the schema and migrations. The worker connects
   as role `tuttitrip_worker` (`TUTTITRIP_WORKER_DATABASE_URL`) with SELECT on
   the domain tables it reads (`trips`, `profiles`, `pasted_documents`) and write access only to
-  `embeddings`, `job_results`, `worker_heartbeats`. `shared/db/tables.py`
+  `embeddings`, `job_results`, `worker_heartbeats`, the OSM fetch state
+  (`city_fetches`, `city_fetch_attempts`) and `notifications` (SELECT, INSERT,
+  DELETE, no UPDATE). `shared/db/tables.py`
   maps their columns without DDL; `tests/test_no_ddl.py` forbids
   `create_all`/DDL. A new table = backend migration + `deploy/worker-grants.sql`
   there, then a mapping here.
@@ -237,8 +239,14 @@ code `not_implemented` until their issues land (tuttitrip-worker#26-#27).
 `parse_pasted_plan` reads the plan by `document_id` + `trip_id` (SELECT on
 `pasted_documents`), runs `pasted_plan_parser` on `tuttitrip:chat`, keeps only
 items the text backs up (verbatim one-line quote, name, times and amount in the quote; see `linter/logic/quotes.py`), lists the rest
-in `unread`, stores the output in `job_results`. `matches` stays empty until
-the matching step (#24). Real-model check: `scripts/smoke_parse_plan.py`.
+in `unread`, matches each item to the catalog places of `city_slug`
+(`linter/logic/candidates.py` ranks at most nine by name similarity with
+`difflib`; the decision model `place_matcher` on `tuttitrip:decide` picks one
+or "none"; `matched` needs a reported confidence of at least 0.5, else
+`needs_confirmation`; no candidates, "none" or the model switched off
+(`TUTTITRIP_LINTER__MATCH_WITH_MODEL=false`) or down leaves it to the
+similarity threshold 0.85), and stores the output with `matches` in
+`job_results`. Real-model check: `scripts/smoke_parse_plan.py`.
 \[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
 
@@ -266,6 +274,22 @@ model requests and responses of the text agents, in the system database. So
 the typed expense sentence and the OCR text of a receipt (not the image) stay
 there until the workflow history is deleted; set a retention for DBOS history
 before real user data goes through it.
+
+## Notifications
+
+The worker never calls the backend for notifications; it inserts rows into
+`notifications` (backend#133) and a trigger wakes the live stream.
+`shared/db/notifications.py` has the `notify_user` step:
+`INSERT ... ON CONFLICT (user_sub, dedupe_key) DO NOTHING` with an id derived
+from (user, key), so retries and recovery add nothing. The `dedupe_key` names
+the thing and its version or day (`plan_ready:<trip>:<workflow>`). Allowed
+types and buttons are `NotificationType` and `NotificationActionCode` in
+`contracts.py` (a test pins them to the backend's lists). The recipient of
+`plan_ready` is the workflow's authenticated user (`DBOS.authenticated_user`,
+set by the backend's `enqueue(user=...)`), so the payload needs no `user`. The
+worker cannot read `trip_members`; a notification for several people needs the
+recipients in the job input. `purge_notifications` (schedule, 03:30) deletes
+read rows older than 90 days and all older than 180, 1000 per transaction.
 
 ## Demo reset
 
