@@ -62,11 +62,7 @@ def capabilities(settings: EnrichSettings) -> list[AbstractCapability[Any]]:
     ]
     if settings.web_fetch:
         caps.append(
-            WebFetch(
-                local=True,
-                max_uses=settings.max_fetches,
-                blocked_domains=settings.fetch_blocked_domains,
-            )
+            WebFetch(local=True, blocked_domains=settings.fetch_blocked_domains)
         )
     if settings.thinking:
         caps.append(Thinking(effort=settings.thinking))
