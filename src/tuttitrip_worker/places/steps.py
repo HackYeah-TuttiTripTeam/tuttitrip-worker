@@ -28,6 +28,7 @@ from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.engine import RowMapping
 
 from tuttitrip_worker.contracts import CONTRACT_VERSION, Workflow
+from tuttitrip_worker.places.constants import OVERPASS_BUSY_MARKER, SOURCE_OSM
 from tuttitrip_worker.places.logic.city import parse_city
 from tuttitrip_worker.places.logic.hours import monday_of
 from tuttitrip_worker.places.logic.mapping import to_place_row
@@ -292,7 +293,7 @@ def build_places_upsert(slug: str, rows: list[PlaceRow]) -> Insert:
                 else_=excluded.opening_hours,
             ),
         },
-        where=places.c.source == "osm",
+        where=places.c.source == SOURCE_OSM,
     )
 
 
@@ -306,7 +307,7 @@ def _marker_relation(result: RowMapping | None) -> tuple[int | None, datetime | 
     return int(data["relation_id"]), datetime.fromisoformat(str(data["fetched_at"]))
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def load_refresh_state(slug: str) -> dict[str, Any]:
     """Read what the catalog knows about a city.
 
@@ -336,7 +337,7 @@ async def load_refresh_state(slug: str) -> dict[str, Any]:
     ).model_dump(mode="json")
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def reserve_overpass_slot(workflow_id: str, slug: str) -> bool:
     """Reserve one of today's Overpass queries for this workflow.
 
@@ -400,7 +401,7 @@ async def geocode_city(query: str, country: str | None) -> dict[str, Any] | None
     return None if city is None else city.model_dump(mode="json")
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def store_city(slug: str, city: dict[str, Any]) -> None:
     """Insert the city unless the catalog already has it.
 
@@ -437,7 +438,7 @@ async def import_places(slug: str, relation_id: int, timezone: str) -> int:
     response = await _send(lambda client: client.post(url, data=data))
     body = response.json()
     remark = str(body.get("remark", ""))
-    if "runtime error" in remark:
+    if OVERPASS_BUSY_MARKER in remark:
         raise OsmBusyError(remark)
     elements = body.get("elements")
     if not isinstance(elements, list):
@@ -455,7 +456,7 @@ async def import_places(slug: str, relation_id: int, timezone: str) -> int:
     return len(rows)
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def mark_fetched(slug: str, relation_id: int, stored: int) -> None:
     """Record the fetch: it starts the refresh period and counts toward the quota.
 

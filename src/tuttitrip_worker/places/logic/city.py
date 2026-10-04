@@ -6,6 +6,7 @@ from typing import Any
 
 from timezonefinder import TimezoneFinder
 
+from tuttitrip_worker.places.constants import OSM_TYPE_RELATION
 from tuttitrip_worker.places.schemas import GeocodedCity
 
 NAME_MAX = 100
@@ -50,7 +51,7 @@ def _relation(results: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
         (
             item
             for item in results
-            if item.get("osm_type") == "relation"
+            if item.get("osm_type") == OSM_TYPE_RELATION
             and item.get("category") in AREA_CATEGORIES
         ),
         None,

@@ -9,6 +9,8 @@ from collections.abc import Mapping
 from itertools import groupby
 from typing import NamedTuple
 
+from tuttitrip_worker.places.constants import OSM_AREA_ID_OFFSET
+
 QUERY_TIMEOUT_SEC = 90
 """Server-side timeout of the Overpass query."""
 
@@ -119,7 +121,7 @@ def overpass_query(relation_id: int) -> str:
     body = "\n  ".join(clauses)
     return (
         f"[out:json][timeout:{QUERY_TIMEOUT_SEC}];\n"
-        f"area({3_600_000_000 + relation_id})->.city;\n"
+        f"area({OSM_AREA_ID_OFFSET + relation_id})->.city;\n"
         f"(\n  {body}\n);\n"
         "out center tags;"
     )

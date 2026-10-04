@@ -9,11 +9,16 @@ from tuttitrip_worker.demo.services import backend_client
 from tuttitrip_worker.shared.config.settings import get_settings
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3, interval_seconds=60)
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=get_settings().demo.reset_max_attempts,
+    interval_seconds=get_settings().demo.reset_retry_interval_seconds,
+)
 async def post_demo_reset() -> dict[str, Any]:
     """Call the backend's internal reset (idempotent and atomic there).
 
-    Three attempts in total (DBOS ``max_attempts``) for transport errors and 5xx.
+    ``demo.reset_max_attempts`` attempts in total (DBOS ``max_attempts``) for
+    transport errors and 5xx.
 
     Returns:
         JSON object matching ``DemoResetResult``.
