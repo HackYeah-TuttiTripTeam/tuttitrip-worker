@@ -36,6 +36,7 @@ module-name = ["tuttitrip_worker", "tuttitrip_dbos_dashboard"]
 
 [dependency-groups]
 dev = [
+    "pillow>=12.3.0",
     "pytest>=9.1.1",
     "pytest-archon>=0.0.7",
     "ruff>=0.16.10",

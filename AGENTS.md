@@ -318,6 +318,18 @@ off) is success. Without the secret the run logs a WARNING and, outside
 errors and 5xx; a 4xx (wrong secret) is not retried and fails the run. Retries are
 safe: the backend reset is atomic and serialized by an advisory lock.
 
+## LLM benchmark (`bench`)
+
+`src/tuttitrip_worker/bench/` is a tool, not a domain: `python -m tuttitrip_worker.bench`
+runs a use case with each catalog model on the golden sets in `tests/golden/` and writes
+`docs/benchmarks/llm-<date>.md`. It calls real models, so it is manual only (never in CI).
+Nothing in the worker imports it (test-enforced, `TOOLS` in `tests/architecture/layout.py`);
+it still follows rules 3 to 6 (`schemas.py`, `constants.py` and `logic/` are pure, only
+`agents.py` imports `pydantic_ai`). Cases call the production functions with
+`Subject.using(agent)`, so prompts, validators and retries are the worker's own. Code checks
+score amounts, dates, ids and verdicts; the judge (rubric in `tests/golden/rubric.md`) only
+scores what code cannot. Method, options and keys: `docs/benchmarks/README.md`.
+
 ## Conventions
 
 - Ruff `select = ["ALL"]` with preview. Google docstrings on every public

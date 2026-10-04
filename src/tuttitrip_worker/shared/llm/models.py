@@ -87,15 +87,26 @@ def _openrouter_key(settings: LlmSettings) -> str:
     )
 
 
-def _openrouter(settings: LlmSettings) -> Model | None:
+def build_openrouter(name: str, settings: LlmSettings) -> Model | None:
+    """Build an OpenRouter model by its slug.
+
+    Args:
+        name: OpenRouter model slug, for example ``google/gemini-3.8-flash``.
+        settings: LLM settings (endpoint and key).
+
+    Returns:
+        The model, or ``None`` when no OpenRouter key is configured.
+    """
     key = _openrouter_key(settings)
     if not key:
         return None
     # OpenRouterProvider has no base_url argument; a client carries it.
     client = AsyncOpenAI(base_url=settings.openrouter_base_url, api_key=key)
-    return OpenRouterModel(
-        settings.openrouter_model, provider=OpenRouterProvider(openai_client=client)
-    )
+    return OpenRouterModel(name, provider=OpenRouterProvider(openai_client=client))
+
+
+def _openrouter(settings: LlmSettings) -> Model | None:
+    return build_openrouter(settings.openrouter_model, settings)
 
 
 def _gb10_qwen(name: str, settings: LlmSettings) -> Model | None:
