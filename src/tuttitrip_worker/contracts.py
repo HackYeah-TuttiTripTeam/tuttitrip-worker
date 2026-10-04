@@ -85,6 +85,8 @@ class Workflow(StrEnum):
     EXTRACT_OFFER_EVIDENCE = "extract_offer_evidence"
     FETCH_PLACE_CANDIDATES = "fetch_place_candidates"
     WRITE_JUSTIFICATIONS = "write_justifications"
+    PARSE_EXPENSE_TEXT = "parse_expense_text"
+    READ_RECEIPT = "read_receipt"
 
 
 class LlmProvider(StrEnum):
@@ -177,6 +179,35 @@ class PingOutput(ContractPayload):
     worker_app_version: str
 
 
+# --- notifications written by the worker -----------------------------------------
+
+NotificationType = Literal["plan_ready"]
+"""Types of notification the worker may insert (the backend owns the list,
+``NotificationType`` in ``tuttitrip.notifications.schemas``; a test pins the
+names). Not part of ``jobs.schema.json``: notifications are rows, not jobs."""
+
+NotificationActionCode = Literal["open_trip", "open_people", "open_plan"]
+"""Buttons a worker notification may carry (a subset of the backend's codes)."""
+
+
+class NotificationDraft(BaseModel):
+    """One notification to insert for a user (the recipient is passed apart).
+
+    ``params`` are small strings for the text (names, ids); no tokens and
+    nothing confidential, they reach the browser. ``dedupe_key`` names the thing
+    and its version or day (``plan_ready:<trip>:<workflow>``), so a retry or a
+    repeated job inserts nothing new.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    type: NotificationType
+    trip_id: UUID | None = None
+    params: dict[str, str] = Field(default_factory=dict, max_length=20)
+    actions: list[NotificationActionCode] = Field(default_factory=list, max_length=4)
+    dedupe_key: str = Field(min_length=1, max_length=255)
+
+
 # --- shared helpers -----------------------------------------------------------------
 
 SLUG_PATTERN: Final = r"^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -258,10 +289,17 @@ class PlaceMatch(BaseModel):
     """Catalog match of one parsed item.
 
     ``status``: ``matched`` (``place_id`` set, confident), ``needs_confirmation``
-    (low confidence, the host picks from ``candidates``) or ``unrecognized``
-    (``place_id`` is ``None``). Filled by the matching step
-    (``tuttitrip-worker#24``); until then ``ParsePastedPlanOutput.matches`` is
-    empty.
+    (low or unreported confidence; ``place_id`` holds the model's pick and the
+    host confirms it or picks from ``candidates``) or ``unrecognized``
+    (``place_id`` is ``None``). ``ParsePastedPlanOutput.matches`` has one entry
+    per item.
+
+    ``confidence`` depends on who decided. Model pick or "none of these": the
+    decision model's margin (0..1, not a probability), ``None`` when a
+    language-model fallback answered. No model (switched off, down, or no
+    candidates): the name similarity of the best candidate for ``matched``;
+    for ``unrecognized`` it is ``None``, so a missing value there means "no
+    model said so", never "sure".
     """
 
     model_config = ConfigDict(frozen=True)
@@ -451,6 +489,67 @@ class WriteJustificationsOutput(ContractPayload):
     justifications: list[Justification] = Field(max_length=600)
 
 
+# --- parse_expense_text and read_receipt (expenses) --------------------------------
+
+CURRENCY_PATTERN: Final = r"^[A-Z]{3}$"
+
+
+class ParseExpenseTextInput(ContractPayload):
+    """Input of ``parse_expense_text``: one sentence typed by a trip member.
+
+    The text is untrusted. The worker only extracts fields; the backend matches
+    names to the trip's profiles and never saves a draft.
+    """
+
+    trip_id: UUID
+    text: str = Field(min_length=1, max_length=500)
+    locale: Locale = "pl"
+
+
+class ParseExpenseTextOutput(ContractPayload):
+    """Output of ``parse_expense_text`` (names exactly as written in the text).
+
+    ``amount_minor`` is in minor units (grosze, cents). ``included_names`` lists
+    people the text says took part; empty means everybody except
+    ``excluded_names``.
+    """
+
+    amount_minor: int = Field(gt=0)
+    currency: str | None = Field(default=None, pattern=CURRENCY_PATTERN)
+    description: str = Field(default="", max_length=500)
+    payer_name: str | None = Field(default=None, max_length=100)
+    included_names: list[str] = Field(default_factory=list, max_length=50)
+    excluded_names: list[str] = Field(default_factory=list, max_length=50)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+ExpenseCategoryName = Literal[
+    "food", "transport", "lodging", "activities", "shopping", "other"
+]
+
+
+class ReadReceiptInput(ContractPayload):
+    """Input of ``read_receipt``: the image is read from ``expense_evidence``.
+
+    The image never travels in the payload or the logs.
+    """
+
+    trip_id: UUID
+    evidence_id: UUID
+
+
+class ReadReceiptOutput(ContractPayload):
+    """Output of ``read_receipt``: settlement fields only, never the image."""
+
+    amount_minor: int = Field(gt=0)
+    currency: str | None = Field(default=None, pattern=CURRENCY_PATTERN)
+    spent_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    merchant: str | None = Field(default=None, max_length=200)
+    category: ExpenseCategoryName | None = None
+    needs_confirmation: bool
+    reasons: list[str] = Field(default_factory=list, max_length=10)
+
+
 # --- events and errors ---------------------------------------------------------------
 
 
@@ -628,6 +727,13 @@ WORKFLOWS: Final[Mapping[Workflow, WorkflowSpec]] = {
     Workflow.WRITE_JUSTIFICATIONS: WorkflowSpec(
         Queue.OPENROUTER, WriteJustificationsInput, WriteJustificationsOutput
     ),
+    # Expenses: the local model on the GB10 reads the text or the image.
+    Workflow.PARSE_EXPENSE_TEXT: WorkflowSpec(
+        Queue.LOCAL_LLM, ParseExpenseTextInput, ParseExpenseTextOutput
+    ),
+    Workflow.READ_RECEIPT: WorkflowSpec(
+        Queue.LOCAL_LLM, ReadReceiptInput, ReadReceiptOutput
+    ),
     # Open data (OSM), no LLM.
     Workflow.FETCH_PLACE_CANDIDATES: WorkflowSpec(
         Queue.DEFAULT, FetchPlaceCandidatesInput, FetchPlaceCandidatesOutput
@@ -639,11 +745,13 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {PROGRESS_EVENT: Progress}
 SCHEDULED_WORKFLOWS: Final[Mapping[str, str]] = {
     "heartbeat": "*/30 * * * * *",
     "reset_demo_account": "0 0 4 * * *",
+    "purge_notifications": "0 30 3 * * *",
 }
 """Internal scheduled workflows (name -> 6-field cron, evaluated in
 ``SCHEDULE_TIMEZONE``), never enqueued by the backend. ``heartbeat`` upserts
 ``worker_heartbeats`` every 30 seconds; ``reset_demo_account`` restores the
-jury's demo account at 04:00."""
+jury's demo account at 04:00; ``purge_notifications`` deletes old rows of
+``notifications`` at 03:30."""
 
 SCHEDULE_TIMEZONE: Final = "Europe/Warsaw"
 """IANA timezone of every cron expression above."""

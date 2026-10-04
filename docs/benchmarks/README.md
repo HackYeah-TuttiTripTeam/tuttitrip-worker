@@ -51,10 +51,7 @@ zapasowych, żeby awaria głównego modelu nie ukryła się za fallbackiem.
 | `match_places` | które miejsce katalogu ma na myśli pozycja planu (modele decyzyjne i językowe) |
 
 Modele decyzyjne (basal, Laya, JEV) odpowiadają tylko wyborem jednej opcji, więc na
-przypadkach z wolnym tekstem mają `skipped`. Przypadki `parse_expense_text` i
-`read_receipt` (PR #45) oraz `match_places` (PR #47) działają, gdy ich kod jest w
-buildzie; przed zmergowaniem tych PR runner zgłasza je jako `skipped`
-("not in this build").
+przypadkach z wolnym tekstem mają `skipped`.
 
 ### Ocena przykładu
 

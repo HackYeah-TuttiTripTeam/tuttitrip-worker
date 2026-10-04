@@ -132,6 +132,13 @@ class BenchSettings(BaseModel):
     )
 
 
+class LinterSettings(BaseModel):
+    """Matching of pasted plan items to the catalog."""
+
+    # Off = only the similarity threshold decides (no decision-model call).
+    match_with_model: bool = True
+
+
 class Settings(BaseSettings):
     """Root settings object for the worker."""
 
@@ -170,6 +177,8 @@ class Settings(BaseSettings):
     demo: DemoSettings = Field(default_factory=DemoSettings)
     osm: OsmSettings = Field(default_factory=OsmSettings)
     bench: BenchSettings = Field(default_factory=BenchSettings)
+
+    linter: LinterSettings = Field(default_factory=LinterSettings)
 
     def system_database_url(self) -> str:
         """DBOS system database URL (defaults to the application database).

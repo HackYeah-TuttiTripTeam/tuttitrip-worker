@@ -7,7 +7,3 @@ class InvalidOutputError(Exception):
 
 class ProviderError(Exception):
     """No model answered: network, quota or an unreachable endpoint."""
-
-
-class CaseUnavailableError(Exception):
-    """The use case is not in this build of the worker (its PR is not merged)."""

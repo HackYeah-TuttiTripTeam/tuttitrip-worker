@@ -166,24 +166,6 @@ def test_a_decision_model_skips_free_text_cases_and_a_missing_key_skips() -> Non
     asyncio.run(_a_decision_model_skips_free_text_cases_and_a_missing_key_skips())
 
 
-async def _a_use_case_missing_from_the_build_is_skipped() -> None:
-    examples = examples_of(CASES["read_receipt"], GOLDEN, 1)
-    results = await run_route(
-        target("read_receipt"),
-        Route("chat", answer_with({})),
-        examples,
-        JudgeLedger(),
-        1,
-    )
-    if results[0].outcome is not Outcome.SKIPPED:  # the expenses PR is merged
-        pytest.skip("read_receipt exists in this build")
-    assert "not in this build" in (results[0].error or "")
-
-
-def test_a_use_case_missing_from_the_build_is_skipped() -> None:
-    asyncio.run(_a_use_case_missing_from_the_build_is_skipped())
-
-
 async def _the_judge_blends_in_by_weight_and_is_charged() -> None:
     examples = examples_of(CASES["parse_pasted_plan"], GOLDEN, 1)
     sample = examples[0]

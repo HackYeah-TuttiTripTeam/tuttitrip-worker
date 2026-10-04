@@ -15,7 +15,6 @@ from tuttitrip_worker.bench.agents import (
 )
 from tuttitrip_worker.bench.cases import Case
 from tuttitrip_worker.bench.constants import MIN_SCORE, PRICES, Outcome, Role
-from tuttitrip_worker.bench.errors import CaseUnavailableError
 from tuttitrip_worker.bench.logic.scoring import combine
 from tuttitrip_worker.bench.logic.stats import call_cost
 from tuttitrip_worker.bench.schemas import Example, ExampleResult
@@ -102,8 +101,6 @@ async def evaluate(
     try:
         async with asyncio.timeout(target.timeout):
             answer = await target.case.run(example, subject, target.golden)
-    except CaseUnavailableError as error:
-        return _result(target, route, example, Outcome.SKIPPED, error=str(error))
     except Exception as error:  # ruff: ignore[blind-except] - every failure becomes a result
         outcome, text = classify(error)
         return _result(

@@ -2,50 +2,33 @@
 
 Each case drives the production function of its use case (the same prompt,
 output validator and retries as in the worker) with the model under test
-swapped in by ``Subject.using``. Cases of pull requests that are not merged
-yet are imported when they run and report :class:`CaseUnavailableError` until
-they land.
+swapped in by ``Subject.using``.
 """
 
 import asyncio
-import importlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from tuttitrip_worker.accommodation import agents as offer_agents
 from tuttitrip_worker.accommodation.services.assess import assess_offer
 from tuttitrip_worker.bench.agents import Subject
 from tuttitrip_worker.bench.constants import SEED_PREFIX, TRIP_ID, Role
-from tuttitrip_worker.bench.errors import (
-    CaseUnavailableError,
-    InvalidOutputError,
-    ProviderError,
-)
+from tuttitrip_worker.bench.errors import InvalidOutputError, ProviderError
 from tuttitrip_worker.bench.logic import scoring
 from tuttitrip_worker.bench.logic.derive import verdict_examples
 from tuttitrip_worker.bench.schemas import Example, Json, Scored
 from tuttitrip_worker.contracts import RequirementLabel
+from tuttitrip_worker.expenses import agents as expense_agents
 from tuttitrip_worker.linter import agents as plan_agents
+from tuttitrip_worker.linter.logic.candidates import rank
 from tuttitrip_worker.linter.logic.quotes import split_items
+from tuttitrip_worker.linter.schemas import CatalogPlace
 from tuttitrip_worker.planning.agents import planner_agent
 
 type RunFn = Callable[[Example, Subject, Path], Awaitable[Json]]
 type ScoreFn = Callable[[Example, Json], Scored]
 type DeriveFn = Callable[[list[Example]], list[Example]]
-
-EXPENSES_AGENTS = "tuttitrip_worker.expenses.agents"
-"""Module of ``parse_expense_text`` and ``read_receipt`` (worker PR #45)."""
-
-MATCH_AGENTS = "tuttitrip_worker.linter.agents"
-"""Module of the place matcher (worker PR #47)."""
-
-MATCH_CANDIDATES = "tuttitrip_worker.linter.logic.candidates"
-"""Candidate ranking of the place matcher (worker PR #47)."""
-
-MATCH_SCHEMAS = "tuttitrip_worker.linter.schemas"
-"""``CatalogPlace`` of the place matcher (worker PR #47)."""
 
 MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
 """Media type by image file suffix."""
@@ -63,27 +46,6 @@ class Case:
     source: str | None = None
     """Golden directory when it differs from ``name`` (a derived case)."""
     derive: DeriveFn | None = None
-
-
-def _optional(module: str, attribute: str | None = None) -> Any:  # ruff: ignore[any-type]
-    """Import a module of an unmerged pull request.
-
-    Args:
-        module: Dotted module path.
-        attribute: Name to take from it, or the module itself.
-
-    Returns:
-        The module or its attribute.
-
-    Raises:
-        CaseUnavailableError: The module or the name does not exist yet.
-    """
-    try:
-        loaded = importlib.import_module(module)
-        return loaded if attribute is None else getattr(loaded, attribute)
-    except (ImportError, AttributeError) as error:
-        msg = f"{module} is not in this build of the worker: {error}"
-        raise CaseUnavailableError(msg) from error
 
 
 async def run_offer(example: Example, subject: Subject, _golden: Path) -> Json:
@@ -198,9 +160,8 @@ async def run_expense(example: Example, subject: Subject, _golden: Path) -> Json
     Returns:
         The reading as the worker returns it.
     """
-    agents = _optional(EXPENSES_AGENTS)
-    with subject.using(agents.text_agent):
-        reading = await agents.read_typed_expense(
+    with subject.using(expense_agents.text_agent):
+        reading = await expense_agents.read_typed_expense(
             example.input["text"],
             f"{SEED_PREFIX}-{example.id}",
             example.input["locale"],
@@ -219,11 +180,12 @@ async def run_receipt(example: Example, subject: Subject, golden: Path) -> Json:
     Returns:
         The reading as the worker returns it.
     """
-    agents = _optional(EXPENSES_AGENTS)
     path = golden / example.input["image"]
     data = await asyncio.to_thread(path.read_bytes)
-    with subject.using(agents.receipt_reader):
-        reading = await agents.read_receipt_image(data, MEDIA_TYPES[path.suffix])
+    with subject.using(expense_agents.receipt_reader):
+        reading = await expense_agents.read_receipt_image(
+            data, MEDIA_TYPES[path.suffix]
+        )
     return reading.model_dump(mode="json")
 
 
@@ -245,16 +207,13 @@ async def run_match(example: Example, subject: Subject, _golden: Path) -> Json:
         InvalidOutputError: The model answered but not in the required shape.
         ProviderError: The model did not answer at all.
     """
-    agents = _optional(MATCH_AGENTS)
-    rank = _optional(MATCH_CANDIDATES, "rank")
-    catalog_place = _optional(MATCH_SCHEMAS, "CatalogPlace")
-    places = [catalog_place(**place) for place in example.input["places"]]
+    places = [CatalogPlace(**place) for place in example.input["places"]]
     ranked = rank(example.input["name"], places)
     candidates = [place.place_id for place in ranked]
     if not ranked:
         return {"place_id": None, "candidates": candidates}
-    with subject.using(agents.place_matcher):
-        decided = await agents.choose_place(
+    with subject.using(plan_agents.place_matcher):
+        decided = await plan_agents.choose_place(
             example.input["name"],
             example.input["quote"],
             f"{SEED_PREFIX}-{example.id}",

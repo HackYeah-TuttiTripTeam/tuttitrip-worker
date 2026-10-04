@@ -38,6 +38,7 @@ TOP_LEVEL_FILES = frozenset(
         "__init__.py",
         "contracts.py",
         "quotes.py",
+        "prompts.py",
         "main.py",
         "healthcheck.py",
         "py.typed",

@@ -25,8 +25,10 @@ from tuttitrip_worker.contracts import (
 )
 from tuttitrip_worker.demo.workflows import reset_demo_account
 from tuttitrip_worker.embeddings.workflows import embed_texts
+from tuttitrip_worker.expenses.workflows import parse_expense_text, read_receipt
 from tuttitrip_worker.healthcheck import LIVENESS_FILE, LIVENESS_INTERVAL_SEC
 from tuttitrip_worker.linter.workflows import parse_pasted_plan
+from tuttitrip_worker.notifications.workflows import purge_notifications
 from tuttitrip_worker.places.workflows import fetch_place_candidates
 from tuttitrip_worker.planning.workflows import generate_trip_plan, write_justifications
 from tuttitrip_worker.shared.config.settings import get_settings
@@ -43,12 +45,15 @@ WORKFLOWS: Final[Mapping[Workflow, Callable[..., Any]]] = {
     Workflow.EXTRACT_OFFER_EVIDENCE: extract_offer_evidence,
     Workflow.FETCH_PLACE_CANDIDATES: fetch_place_candidates,
     Workflow.WRITE_JUSTIFICATIONS: write_justifications,
+    Workflow.PARSE_EXPENSE_TEXT: parse_expense_text,
+    Workflow.READ_RECEIPT: read_receipt,
 }
 """Every contract workflow and the function registered under its name."""
 
 SCHEDULES: Final[Mapping[str, Callable[..., Any]]] = {
     "heartbeat": heartbeat,
     "reset_demo_account": reset_demo_account,
+    "purge_notifications": purge_notifications,
 }
 """Every scheduled workflow (cron in ``contracts.SCHEDULED_WORKFLOWS``)."""
 
