@@ -33,6 +33,16 @@ from sqlalchemy.dialects.postgresql import JSONB
 # Never passed to create_all/drop_all; it only groups the mappings.
 metadata = MetaData()
 
+# Read-only: SELECT on `plan_versions` comes from the backend's
+# `deploy/worker-grants.sql` (tuttitrip-backend#73). Only the columns used.
+plan_versions = Table(
+    "plan_versions",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("trip_id", Uuid, nullable=False),
+    Column("result", JSONB, nullable=False),
+)
+
 embeddings = Table(
     "embeddings",
     metadata,
