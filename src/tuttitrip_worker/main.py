@@ -31,7 +31,7 @@ from tuttitrip_worker.places.workflows import fetch_place_candidates
 from tuttitrip_worker.planning.workflows import generate_trip_plan, write_justifications
 from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.dbos.runtime import init_dbos, register_queues
-from tuttitrip_worker.system.workflows import heartbeat, ping
+from tuttitrip_worker.system.workflows import beat_now, heartbeat, ping
 
 logger = logging.getLogger(APPLICATION_NAME)
 
@@ -90,6 +90,7 @@ def run() -> None:
     DBOS.launch()
     register_queues()
     apply_schedules()
+    beat_now()
     logger.info(
         "worker ready: env=%s app_version=%s contract=%s queues=%s",
         settings.environment,
