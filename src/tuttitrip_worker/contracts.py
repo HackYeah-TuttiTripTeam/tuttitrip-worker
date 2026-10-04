@@ -289,10 +289,10 @@ class PlaceMatch(BaseModel):
     """Catalog match of one parsed item.
 
     ``status``: ``matched`` (``place_id`` set, confident), ``needs_confirmation``
-    (low confidence, the host picks from ``candidates``) or ``unrecognized``
-    (``place_id`` is ``None``). Filled by the matching step
-    (``tuttitrip-worker#24``); until then ``ParsePastedPlanOutput.matches`` is
-    empty.
+    (low or unreported confidence; ``place_id`` holds the model's pick and the
+    host confirms it or picks from ``candidates``) or ``unrecognized``
+    (``place_id`` is ``None``). ``ParsePastedPlanOutput.matches`` has one entry
+    per item.
     """
 
     model_config = ConfigDict(frozen=True)

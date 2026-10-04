@@ -64,3 +64,23 @@ class PlanDraft(BaseModel):
     """Structured output of the parser agent: every item of the pasted plan."""
 
     items: list[DraftPlanItem] = Field(max_length=MAX_DRAFT_ITEMS)
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogPlace:
+    """A catalog place the matcher may propose (the catalog has no address)."""
+
+    place_id: str
+    name: str
+    category: str
+
+
+class RankedPlace(BaseModel):
+    """A catalog place ranked for one pasted item; ``score`` is 0..1 similarity."""
+
+    model_config = ConfigDict(frozen=True)
+
+    place_id: str
+    name: str
+    category: str
+    score: float = Field(ge=0, le=1)

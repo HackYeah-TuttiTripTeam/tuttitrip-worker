@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from dbos import DBOS, DBOSClient, PortableWorkflowError
 from pydantic_ai import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.exceptions import ModelAPIError
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import Select
 from sqlalchemy.dialects import postgresql
@@ -30,11 +31,20 @@ from tuttitrip_worker.contracts import (
     Workflow,
 )
 from tuttitrip_worker.linter import steps
+from tuttitrip_worker.linter.logic.candidates import (
+    AUTO_MATCH_SCORE,
+    MAX_CANDIDATES,
+    fold,
+    match_with_pick,
+    match_without_model,
+    rank,
+    similarity,
+)
 from tuttitrip_worker.linter.logic.prompt import data_tag, frame_pasted_text
 from tuttitrip_worker.linter.logic.quotes import check_item, split_items
-from tuttitrip_worker.linter.schemas import DraftPlanItem
+from tuttitrip_worker.linter.schemas import CatalogPlace, DraftPlanItem, RankedPlace
 from tuttitrip_worker.quotes import find_quote
-from tuttitrip_worker.shared.config.settings import Settings
+from tuttitrip_worker.shared.config.settings import Settings, get_settings
 from tuttitrip_worker.shared.db import job_results
 from tuttitrip_worker.shared.llm.models import catalog
 
@@ -177,9 +187,24 @@ class FakeConnection:
     def __init__(self, env: Env) -> None:
         self.env = env
 
-    async def execute(self, statement: Select[Any]) -> FakeResult:
-        self.env.selects.append(str(statement.compile(dialect=postgresql.dialect())))
+    async def execute(self, statement: Select[Any]) -> FakeResult | FakePlaces:
+        text = str(statement.compile(dialect=postgresql.dialect()))
+        if "FROM places" in text:
+            self.env.place_selects.append(text)
+            return FakePlaces(self.env.places)
+        self.env.selects.append(text)
         return FakeResult(self.env.text)
+
+
+class FakePlaces:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self.rows = rows
+
+    def mappings(self) -> FakePlaces:
+        return self
+
+    def all(self) -> list[dict[str, Any]]:
+        return self.rows
 
 
 # --- the workflow ------------------------------------------------------------------
@@ -191,6 +216,12 @@ class Env:
     def __init__(self) -> None:
         self.text: str | None = PLAN
         self.selects: list[str] = []
+        self.place_selects: list[str] = []
+        self.places: list[dict[str, Any]] = []
+        self.match_prompts: list[str] = []
+        self.match_answers: list[str] = []
+        self.match_error = False
+        self.match_details: dict[str, Any] | None = {"confidence": {"response": 0.9}}
         self.saved: list[tuple[str, str, dict[str, Any]]] = []
         self.prompts: list[str] = []
         self.retry_messages: list[str] = []
@@ -198,6 +229,17 @@ class Env:
 
     def model(self) -> FunctionModel:
         def answer(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            first_prompt = str(getattr(messages[0].parts[-1], "content", ""))
+            if first_prompt.startswith("The pasted item is the data"):
+                self.match_prompts.append(first_prompt)
+                if self.match_error:
+                    raise ModelAPIError(MODEL_NAME, DOWN)
+                pick = self.match_answers[len(self.match_prompts) - 1]
+                tool = info.output_tools[0].name
+                return ModelResponse(
+                    parts=[ToolCallPart(tool, {"response": pick})],
+                    provider_details=self.match_details,
+                )
             self.prompts.append(str(getattr(messages[0].parts[-1], "content", "")))
             last = str(messages[-1].parts[-1])
             if "Fix or drop" in last or "No items returned" in last:
@@ -262,7 +304,7 @@ def test_every_item_is_read_and_every_quote_is_in_the_text(
         "PLN",
     )
     assert output.unread == []
-    assert output.matches == []
+    assert [m.status for m in output.matches] == ["unrecognized"] * 4  # empty catalog
     assert env.saved == [
         (workflow_id, "parse_pasted_plan", output.model_dump(mode="json"))
     ]
@@ -379,3 +421,184 @@ def test_replaying_after_the_model_step_reuses_it_and_the_text(
     assert again == first
     assert len(env.prompts) == 1  # the model was not asked again
     assert len(env.selects) == 1  # the text came from the checkpointed step
+
+
+# --- matching to the catalog ---------------------------------------------------------
+
+MODEL_NAME = "basal"
+DOWN = "down"
+ZAMEK = "8a000000-0000-4000-8000-000000000001"
+PODZIEMIA = "8a000000-0000-4000-8000-000000000002"
+KOPIEC = "8a000000-0000-4000-8000-000000000003"
+CATALOG = [
+    CatalogPlace(ZAMEK, "Zamek Królewski na Wawelu", "attraction"),
+    CatalogPlace(PODZIEMIA, "Muzeum Podziemia Rynku", "museum"),
+    CatalogPlace(KOPIEC, "Kopiec Kościuszki", "attraction"),
+    CatalogPlace(str(uuid4()), "Dworzec Główny", "transport"),
+]
+
+
+def rows(places: list[CatalogPlace]) -> list[dict[str, Any]]:
+    return [
+        {"id": UUID(p.place_id), "name": p.name, "category": p.category} for p in places
+    ]
+
+
+def test_names_are_folded_without_case_diacritics_or_punctuation() -> None:
+    assert fold("  Pałac  Łazienki-Królewskie ") == "palac lazienki krolewskie"
+    assert fold("Straße des 17. Juni") == "strasse des 17 juni"
+    assert similarity(
+        "zamek królewski na wawelu", "Zamek Królewski na Wawelu"
+    ) == pytest.approx(1.0)
+
+
+def test_candidates_are_the_same_every_time_and_ties_break_by_id() -> None:
+    twins = [CatalogPlace(f"id-{n}", "Muzeum Narodowe", "museum") for n in (3, 1, 2)]
+    first = rank("Muzeum Narodowe", twins)
+    assert [p.place_id for p in first] == ["id-1", "id-2", "id-3"]
+    assert rank("Muzeum Narodowe", reversed(twins)) == first
+    assert rank("Muzeum Narodowe", twins) == first
+
+
+def test_at_most_nine_candidates_and_unlike_places_are_left_out() -> None:
+    many = [
+        CatalogPlace(f"id-{n:02}", f"Muzeum Sztuki {n}", "museum") for n in range(15)
+    ]
+    assert len(rank("Muzeum Sztuki", many)) == MAX_CANDIDATES
+    assert (
+        rank("Zamek Królewski na Wawelu", [CatalogPlace("x", "Dworzec", "transport")])
+        == []
+    )
+
+
+def test_generic_words_do_not_make_two_museums_alike() -> None:
+    assert similarity("Muzeum Narodowe", "Muzeum Podziemia Rynku") < AUTO_MATCH_SCORE
+    assert similarity("Wawel", "Zamek Królewski na Wawelu") > 0.4
+
+
+def test_without_a_model_only_a_close_name_matches() -> None:
+    ranked = rank("Zamek Królewski na Wawelu", CATALOG)
+    match = match_without_model(0, ranked)
+    assert (match.status, match.place_id) == ("matched", ZAMEK)
+    outside = match_without_model(1, rank("Muzeum Narodowe", CATALOG))
+    assert (outside.status, outside.place_id) == ("unrecognized", None)
+    assert outside.candidates  # the host can still pick from them
+    assert match_without_model(2, []).candidates == []
+
+
+def ranked_place(place_id: str, score: float = 0.9) -> RankedPlace:
+    return RankedPlace(place_id=place_id, name="n", category="c", score=score)
+
+
+@pytest.mark.parametrize(
+    ("confidence", "status"),
+    [
+        (0.9, "matched"),
+        (0.5, "matched"),
+        (0.49, "needs_confirmation"),
+        (None, "needs_confirmation"),
+    ],
+)
+def test_a_pick_below_the_confidence_floor_or_without_one_is_to_confirm(
+    confidence: float | None, status: str
+) -> None:
+    pick = ranked_place(ZAMEK)
+    match = match_with_pick(0, [pick], pick, confidence)
+    assert (match.status, match.place_id, match.confidence) == (
+        status,
+        ZAMEK,
+        confidence,
+    )
+
+
+def test_none_of_these_is_unrecognized() -> None:
+    match = match_with_pick(0, [ranked_place(ZAMEK)], None, 0.8)
+    assert (match.status, match.place_id) == ("unrecognized", None)
+    assert match.candidates[0].place_id == ZAMEK
+
+
+def test_the_catalog_select_is_scoped_to_the_city() -> None:
+    text = str(
+        steps.build_city_places_select("krakow").compile(dialect=postgresql.dialect())
+    )
+    assert "places.city_slug =" in text
+    assert "ORDER BY places.id" in text
+    assert "LIMIT" in text
+
+
+def test_items_are_matched_with_the_decision_model(
+    client: DBOSClient, dbos: Settings, env: Env
+) -> None:
+    env.places = rows(CATALOG)
+    env.match_answers = ["c1", "none", "c1", "c1"]  # Pod Wawelem is not Wawel castle
+    workflow_id, output = run(client, dbos, env, payload())
+
+    assert [(m.item_index, m.status, m.place_id) for m in output.matches] == [
+        (0, "matched", ZAMEK),
+        (1, "unrecognized", None),
+        (2, "matched", PODZIEMIA),
+        (3, "matched", KOPIEC),
+    ]
+    assert output.matches[0].confidence == pytest.approx(0.9)
+    assert len(env.place_selects) == 1  # one read of the city, not one per item
+    assert len(env.match_prompts) == 4
+    assert "Zamek Królewski na Wawelu" in env.match_prompts[0]
+    assert Q_WAWEL in env.match_prompts[0]  # the line the item came from
+    steps_run = [s["function_name"] for s in DBOS.list_workflow_steps(workflow_id)]
+    assert "place_matcher__model.request" in steps_run
+    assert env.saved[0][2]["matches"] == [
+        m.model_dump(mode="json") for m in output.matches
+    ]
+
+
+def test_a_low_confidence_pick_or_none_of_these_is_flagged(
+    client: DBOSClient, dbos: Settings, env: Env
+) -> None:
+    env.places = rows(CATALOG)
+    env.match_answers = ["c1", "none", "c1", "c1"]
+    env.match_details = {"confidence": {"response": 0.2}}
+    _, output = run(client, dbos, env, payload())
+
+    by_item = {m.item_index: m for m in output.matches}
+    assert (by_item[0].status, by_item[0].place_id) == ("needs_confirmation", ZAMEK)
+    assert (by_item[1].status, by_item[1].place_id) == ("unrecognized", None)
+    assert by_item[1].candidates  # unrecognized items keep their candidates
+    assert len(output.matches) == len(output.items)  # nothing disappears
+
+
+def test_a_fallback_answer_without_confidence_must_be_confirmed(
+    client: DBOSClient, dbos: Settings, env: Env
+) -> None:
+    env.places = rows(CATALOG)
+    env.match_answers = ["c1"] * 4
+    env.match_details = None
+    _, output = run(client, dbos, env, payload())
+    assert {m.status for m in output.matches} == {"needs_confirmation"}
+
+
+def test_with_the_model_switched_off_the_threshold_decides(
+    client: DBOSClient, dbos: Settings, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TUTTITRIP_LINTER__MATCH_WITH_MODEL", "false")
+    get_settings.cache_clear()
+    env.places = rows(CATALOG)
+    _, output = run(client, dbos, env, payload())
+
+    assert env.match_prompts == []
+    assert {m.item_index: m.place_id for m in output.matches} == {
+        0: ZAMEK,
+        1: None,
+        2: PODZIEMIA,
+        3: KOPIEC,
+    }
+
+
+def test_when_no_model_answers_the_threshold_decides(
+    client: DBOSClient, dbos: Settings, env: Env
+) -> None:
+    env.places = rows(CATALOG)
+    env.match_error = True
+    _, output = run(client, dbos, env, payload())
+
+    assert len(env.match_prompts) == 4  # it was asked, and it was down
+    assert [m.place_id for m in output.matches] == [ZAMEK, None, PODZIEMIA, KOPIEC]

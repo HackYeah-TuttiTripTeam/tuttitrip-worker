@@ -238,8 +238,14 @@ code `not_implemented` until their issues land (tuttitrip-worker#26-#27).
 `parse_pasted_plan` reads the plan by `document_id` + `trip_id` (SELECT on
 `pasted_documents`), runs `pasted_plan_parser` on `tuttitrip:chat`, keeps only
 items the text backs up (verbatim one-line quote, name, times and amount in the quote; see `linter/logic/quotes.py`), lists the rest
-in `unread`, stores the output in `job_results`. `matches` stays empty until
-the matching step (#24). Real-model check: `scripts/smoke_parse_plan.py`.
+in `unread`, matches each item to the catalog places of `city_slug`
+(`linter/logic/candidates.py` ranks at most nine by name similarity with
+`difflib`; the decision model `place_matcher` on `tuttitrip:decide` picks one
+or "none"; `matched` needs a reported confidence of at least 0.5, else
+`needs_confirmation`; no candidates, "none" or the model switched off
+(`TUTTITRIP_LINTER__MATCH_WITH_MODEL=false`) or down leaves it to the
+similarity threshold 0.85), and stores the output with `matches` in
+`job_results`. Real-model check: `scripts/smoke_parse_plan.py`.
 \[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
 
