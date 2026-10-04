@@ -102,8 +102,8 @@ Dwa przykłady pracy workera (plansze na danych przykładowych):
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/readme/07-settle.webp" alt="Telefon z listą wydatków wyjazdu, obok suma 586 zł, „3 przelewy zamiast 6” i niepewny odczyt paragonu z przerywanym obrysem."><br><sub>Model odczytuje paragon albo wpis wydatku, a niepewny odczyt czeka na potwierdzenie. Saldo i przelewy liczy kod.</sub></td>
-    <td width="50%"><img src="docs/readme/06-replan.webp" alt="Telefon z planem dnia po komunikacie „Silny deszcz od 11:00”: muzea zamiast parku i molo, obok panel „Co sprawdził kod” z zerem problemów."><br><sub>Nagłe zdarzenie: model zamienia „deszcz od 11:00” na warunki, solver przelicza resztę dnia (w budowie).</sub></td>
+    <td width="50%"><img width="100%" src="docs/readme/07-settle.webp" alt="Telefon z listą wydatków wyjazdu, obok suma 586 zł, „3 przelewy zamiast 6” i niepewny odczyt paragonu z przerywanym obrysem."><br><sub>Model odczytuje paragon albo wpis wydatku, a niepewny odczyt czeka na potwierdzenie. Saldo i przelewy liczy kod.</sub></td>
+    <td width="50%"><img width="100%" src="docs/readme/06-replan.webp" alt="Telefon z planem dnia po komunikacie „Silny deszcz od 11:00”: muzea zamiast parku i molo, obok panel „Co sprawdził kod” z zerem problemów."><br><sub>Nagłe zdarzenie: model zamienia „deszcz od 11:00” na warunki, solver przelicza resztę dnia (w budowie).</sub></td>
   </tr>
 </table>
 
