@@ -14,19 +14,26 @@ from typing import Any, Final
 
 from dbos import DBOS
 
+from tuttitrip_worker.accommodation.workflows import extract_offer_evidence
 from tuttitrip_worker.contracts import (
     APPLICATION_NAME,
     CONTRACT_VERSION,
+    SCHEDULE_TIMEZONE,
     SCHEDULED_WORKFLOWS,
     Queue,
     Workflow,
 )
+from tuttitrip_worker.demo.workflows import reset_demo_account
 from tuttitrip_worker.embeddings.workflows import embed_texts
+from tuttitrip_worker.expenses.workflows import parse_expense_text, read_receipt
 from tuttitrip_worker.healthcheck import LIVENESS_FILE, LIVENESS_INTERVAL_SEC
-from tuttitrip_worker.planning.workflows import generate_trip_plan
+from tuttitrip_worker.linter.workflows import parse_pasted_plan
+from tuttitrip_worker.notifications.workflows import purge_notifications
+from tuttitrip_worker.places.workflows import fetch_place_candidates
+from tuttitrip_worker.planning.workflows import generate_trip_plan, write_justifications
 from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.dbos.runtime import init_dbos, register_queues
-from tuttitrip_worker.system.workflows import heartbeat, ping
+from tuttitrip_worker.system.workflows import beat_now, heartbeat, ping
 
 logger = logging.getLogger(APPLICATION_NAME)
 
@@ -34,10 +41,20 @@ WORKFLOWS: Final[Mapping[Workflow, Callable[..., Any]]] = {
     Workflow.PING: ping,
     Workflow.GENERATE_TRIP_PLAN: generate_trip_plan,
     Workflow.EMBED_TEXTS: embed_texts,
+    Workflow.PARSE_PASTED_PLAN: parse_pasted_plan,
+    Workflow.EXTRACT_OFFER_EVIDENCE: extract_offer_evidence,
+    Workflow.FETCH_PLACE_CANDIDATES: fetch_place_candidates,
+    Workflow.WRITE_JUSTIFICATIONS: write_justifications,
+    Workflow.PARSE_EXPENSE_TEXT: parse_expense_text,
+    Workflow.READ_RECEIPT: read_receipt,
 }
 """Every contract workflow and the function registered under its name."""
 
-SCHEDULES: Final[Mapping[str, Callable[..., Any]]] = {"heartbeat": heartbeat}
+SCHEDULES: Final[Mapping[str, Callable[..., Any]]] = {
+    "heartbeat": heartbeat,
+    "reset_demo_account": reset_demo_account,
+    "purge_notifications": purge_notifications,
+}
 """Every scheduled workflow (cron in ``contracts.SCHEDULED_WORKFLOWS``)."""
 
 
@@ -49,6 +66,7 @@ def apply_schedules() -> None:
                 "schedule_name": name,
                 "workflow_fn": workflow,
                 "schedule": SCHEDULED_WORKFLOWS[name],
+                "cron_timezone": SCHEDULE_TIMEZONE,
             }
             for name, workflow in SCHEDULES.items()
         ]
@@ -77,6 +95,7 @@ def run() -> None:
     DBOS.launch()
     register_queues()
     apply_schedules()
+    beat_now()
     logger.info(
         "worker ready: env=%s app_version=%s contract=%s queues=%s",
         settings.environment,

@@ -19,6 +19,8 @@ import tuttitrip_worker
 PACKAGE = "tuttitrip_worker"
 PACKAGE_ROOT = Path(tuttitrip_worker.__file__).parent
 SHARED = "shared"
+TOOLS = frozenset({"bench"})
+"""Top-level packages that are tools, not domains (see AGENTS.md, "Benchmark")."""
 LAYER_PACKAGES = frozenset({"logic", "services"})
 DOMAIN_FILES = frozenset(
     {
@@ -27,6 +29,7 @@ DOMAIN_FILES = frozenset(
         "schemas.py",
         "steps.py",
         "agents.py",
+        "constants.py",
     }
 )
 REQUIRED_DOMAIN_FILES = ("__init__.py", "workflows.py", "schemas.py")
@@ -34,6 +37,8 @@ TOP_LEVEL_FILES = frozenset(
     {
         "__init__.py",
         "contracts.py",
+        "quotes.py",
+        "prompts.py",
         "main.py",
         "healthcheck.py",
         "py.typed",
@@ -61,7 +66,11 @@ def walk_domains(domain: Path) -> Iterator[Path]:
 
 
 def top_level_domains() -> list[str]:
-    return [p.name for p in subpackages(PACKAGE_ROOT) if p.name != SHARED]
+    return [
+        p.name
+        for p in subpackages(PACKAGE_ROOT)
+        if p.name != SHARED and p.name not in TOOLS
+    ]
 
 
 def all_domains() -> list[Path]:
@@ -69,7 +78,7 @@ def all_domains() -> list[Path]:
     return [
         d
         for top in subpackages(PACKAGE_ROOT)
-        if top.name != SHARED
+        if top.name != SHARED and top.name not in TOOLS
         for d in walk_domains(top)
     ]
 

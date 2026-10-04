@@ -68,3 +68,10 @@ def client(dbos: Settings, sqlite_url: str) -> Generator[DBOSClient]:
     )
     yield dbos_client
     dbos_client.destroy()
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Mark every test that launches a DBOS runtime as ``integration``."""
+    for item in items:
+        if {"dbos", "client"} & set(getattr(item, "fixturenames", ())):
+            item.add_marker(pytest.mark.integration)

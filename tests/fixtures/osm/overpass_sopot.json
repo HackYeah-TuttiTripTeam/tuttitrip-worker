@@ -1,0 +1,497 @@
+{
+ "version": 0.6,
+ "osm3s": {
+  "timestamp_osm_base": "2026-10-03T23:17:19Z",
+  "timestamp_areas_base": "2026-10-03T05:54:12Z",
+  "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+ },
+ "elements": [
+  {
+   "type": "node",
+   "id": 275236927,
+   "lat": 54.4403402,
+   "lon": 18.5644235,
+   "tags": {
+    "historic": "memorial",
+    "memorial": "sculpture",
+    "name": "Pomordowanym mieszkańcom Sopotu"
+   }
+  },
+  {
+   "type": "node",
+   "id": 275236947,
+   "lat": 54.4409665,
+   "lon": 18.5641787,
+   "tags": {
+    "artist:wikidata": "Q729748",
+    "historic": "memorial",
+    "memorial": "bust",
+    "name": "Pomnik Fryderyka Chopina",
+    "start_date": "1998-07-14",
+    "subject:wikidata": "Q1268"
+   }
+  },
+  {
+   "type": "node",
+   "id": 304563097,
+   "lat": 54.4499807,
+   "lon": 18.5662894,
+   "tags": {
+    "description": "Marynarzom polskim, którzy nie szczędzili krwi ani sił w walce o Polskę silną na morzu",
+    "historic": "memorial",
+    "image": "https://commons.wikimedia.org/wiki/File:Pomnik_marynarzom_polskim.jpg",
+    "material": "stone",
+    "memorial": "stele",
+    "name": "Pomnik Marynarzy"
+   }
+  },
+  {
+   "type": "node",
+   "id": 304563265,
+   "lat": 54.4485486,
+   "lon": 18.5682767,
+   "tags": {
+    "amenity": "theatre",
+    "check_date": "2025-07-26",
+    "name": "Teatr Atelier im. Agnieszki Osieckiej"
+   }
+  },
+  {
+   "type": "node",
+   "id": 304729028,
+   "lat": 54.448551,
+   "lon": 18.5671262,
+   "tags": {
+    "amenity": "nightclub",
+    "name": "Sfinks700"
+   }
+  },
+  {
+   "type": "node",
+   "id": 304729031,
+   "lat": 54.4484464,
+   "lon": 18.5683284,
+   "tags": {
+    "amenity": "nightclub",
+    "check_date": "2025-07-26",
+    "name": "Klub Atelier"
+   }
+  },
+  {
+   "type": "node",
+   "id": 304729035,
+   "lat": 54.4444927,
+   "lon": 18.567118,
+   "tags": {
+    "amenity": "nightclub",
+    "name": "Soho Klubogaleria"
+   }
+  },
+  {
+   "type": "node",
+   "id": 732096540,
+   "lat": 54.4425782,
+   "lon": 18.552034,
+   "tags": {
+    "amenity": "restaurant",
+    "name": "Harnaś",
+    "official_name": "Harnaś Sopocka Chata Góralska",
+    "opening_hours": "Mo-Fr 12:00-21:00; Sa 11:00-22:00; Su 11:00-21:00"
+   }
+  },
+  {
+   "type": "node",
+   "id": 732096690,
+   "lat": 54.4439967,
+   "lon": 18.5474648,
+   "tags": {
+    "name": "Opera",
+    "stars": "3",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "type": "node",
+   "id": 894541022,
+   "lat": 54.4453425,
+   "lon": 18.5678514,
+   "tags": {
+    "check_date": "2024-08-20",
+    "name": "Bayjonn",
+    "stars": "3",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1167966622,
+   "lat": 54.4370777,
+   "lon": 18.580194,
+   "tags": {
+    "addr:city": "Sopot",
+    "addr:housenumber": "11",
+    "addr:postcode": "81-769",
+    "addr:street": "Aleja Wojska Polskiego",
+    "amenity": "restaurant",
+    "changing_table": "yes",
+    "changing_table:count": "1",
+    "changing_table:fee": "no",
+    "changing_table:location": "wheelchair_toilet",
+    "check_date": "2025-11-06",
+    "check_date:opening_hours": "2025-11-06",
+    "cuisine": "fish",
+    "email": "bar@barprzystan.pl",
+    "highchair": "yes",
+    "indoor_seating": "yes",
+    "internet_access": "wlan",
+    "internet_access:fee": "no",
+    "internet_access:ipv6": "no",
+    "internet_access:operator": "UPC Polska sp. z o.o.",
+    "internet_access:ssid": "Bar Przystań",
+    "kids_area": "no",
+    "level": "0",
+    "name": "Bar Przystań",
+    "opening_hours": "Mo-Su 11:00-23:00",
+    "operator": "Bar Przystań spółka jawna",
+    "outdoor_seating": "yes",
+    "phone": "+48 509 695 655",
+    "reusable_packaging:offer": "yes",
+    "seasonal": "no",
+    "toilets": "yes",
+    "toilets:access": "yes",
+    "toilets:capacity": "6",
+    "toilets:level": "0",
+    "toilets:unisex": "no",
+    "toilets:wheelchair": "yes",
+    "website": "https://barprzystan.pl/",
+    "wheelchair": "yes"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1309361009,
+   "lat": 54.4388946,
+   "lon": 18.5594729,
+   "tags": {
+    "amenity": "fast_food",
+    "cuisine": "polish",
+    "email": "lepo07@wp.pl",
+    "name": "Pierogarnia Jedynka",
+    "opening_hours": "Mo-Th 11:00-17:00; Sa 12:00-16:00",
+    "website": "https://www.pierogarniajedynkasopot.pl/contact",
+    "website:menu": "https://www.pierogarniajedynkasopot.pl/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1756717020,
+   "lat": 54.4324987,
+   "lon": 18.5836531,
+   "tags": {
+    "addr:city": "Sopot",
+    "addr:housenumber": "61",
+    "addr:street": "Bitwy pod Płowcami",
+    "name": "Ośrodek Wczasowy \"Sopocki Zdrój\"",
+    "tourism": "motel"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1781635965,
+   "lat": 54.4522989,
+   "lon": 18.551487,
+   "tags": {
+    "ele": "77",
+    "name": "Wzgórze Augusty",
+    "name:de": "Augustusberg",
+    "name:pl": "Wzgórze Augusty",
+    "natural": "peak",
+    "old_name": "Góra Augusta",
+    "tourism": "viewpoint",
+    "wikidata": "Q9283362",
+    "wikipedia": "pl:Góra Augusta"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1818526105,
+   "lat": 54.4430547,
+   "lon": 18.5618783,
+   "tags": {
+    "amenity": "cafe",
+    "email": "sopot@lacrema.pl",
+    "name": "La Crema d'Italia",
+    "opening_hours": "Mo-Fr 07:30-21:00; Sa 09:00-22:00; Su 10:00-22:00",
+    "phone": "+48 781 649 910"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1878046727,
+   "lat": 54.4447856,
+   "lon": 18.5492285,
+   "tags": {
+    "description": "Sopot view",
+    "direction": "E",
+    "name": "Wzniesienie Strzeleckie",
+    "tourism": "viewpoint"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2297191922,
+   "lat": 54.4347873,
+   "lon": 18.5462984,
+   "tags": {
+    "alt_name": "Sępie Wzgórze",
+    "name": "Glinna Góra",
+    "name:de": "Großer Gaisberg",
+    "name:pl": "Glinna Góra",
+    "natural": "peak",
+    "source:name:de": "Pharus-Plan Ostseebad Zoppot",
+    "source:name:pl": "PTTK",
+    "tourism": "viewpoint"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2719774604,
+   "lat": 54.4462021,
+   "lon": 18.5691714,
+   "tags": {
+    "amenity": "theatre",
+    "check_date": "2026-08-06",
+    "name": "Muszla koncertowa"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4161988097,
+   "lat": 54.4449754,
+   "lon": 18.5677082,
+   "tags": {
+    "amenity": "ice_cream",
+    "brand": "Grycan",
+    "brand:wikidata": "Q97372889",
+    "contact:phone": "+48 784365905",
+    "contact:website": "http://grycan.pl/lodziarnie/Sopot",
+    "cuisine": "ice_cream",
+    "name": "Grycan",
+    "opening_hours": "Mo-Su 08:00-20:00"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4377349093,
+   "lat": 54.4534428,
+   "lon": 18.5640788,
+   "tags": {
+    "amenity": "restaurant",
+    "name": "Restaurant Diuna",
+    "opening_hours": "Mo-Su,PH 12:00-22:00"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4589196003,
+   "lat": 54.4475377,
+   "lon": 18.5641781,
+   "tags": {
+    "addr:city": "Sopot",
+    "addr:housenumber": "42",
+    "addr:street": "Jana Jerzego Haffnera",
+    "amenity": "cafe",
+    "description": "gluten free, sugar free, vegan, non GMO",
+    "name": "LAS",
+    "opening_hours": "Mo-Su 10:00-19:00",
+    "phone": "+48794542580",
+    "website": "https://www.facebook.com/kawiarniaLAS/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 5361893503,
+   "lat": 54.4433398,
+   "lon": 18.5656037,
+   "tags": {
+    "amenity": "theatre",
+    "contact:website": "https://www.teatrwybrzeze.pl/scena-kameralna",
+    "name": "Teatr Wybrzeże - Scena Kameralna im. Joanny Bogackiej"
+   }
+  },
+  {
+   "type": "node",
+   "id": 8930871112,
+   "lat": 54.4454333,
+   "lon": 18.567908,
+   "tags": {
+    "fee": "yes",
+    "name": "Muzeum figur woskowych",
+    "tourism": "gallery"
+   }
+  },
+  {
+   "type": "node",
+   "id": 9410067638,
+   "lat": 54.4315021,
+   "lon": 18.5615108,
+   "tags": {
+    "amenity": "restaurant",
+    "check_date": "2025-06-30",
+    "cuisine": "steak_house",
+    "name": "Steak House Piroman",
+    "opening_hours": "We,Th 13:00-21:00; Fr 13:00-22:00; Sa 12:00-22:00; Su 12:00-20:00; Mo,Tu off",
+    "phone": "+48514790268"
+   }
+  },
+  {
+   "type": "node",
+   "id": 11884751857,
+   "lat": 54.4453155,
+   "lon": 18.5694616,
+   "tags": {
+    "addr:housenumber": "2",
+    "addr:postcode": "81-720",
+    "addr:street": "Plac Zdrojowy",
+    "check_date": "2025-09-19",
+    "fee": "yes",
+    "name": "Państwowa Galeria Sztuki",
+    "opening_hours": "Tu-We, Fr-Su 10:00-17:00; Th 10:00-18:00",
+    "tourism": "gallery"
+   }
+  },
+  {
+   "type": "node",
+   "id": 12956763815,
+   "lat": 54.4537923,
+   "lon": 18.5636631,
+   "tags": {
+    "access": "yes",
+    "leisure": "playground",
+    "name": "Domek na drzewie",
+    "start_date": "2025"
+   }
+  },
+  {
+   "type": "node",
+   "id": 14000438494,
+   "lat": 54.44435,
+   "lon": 18.5632132,
+   "tags": {
+    "contact:instagram": "https://www.instagram.com/splot_gallery/",
+    "email": "info@splotgallery.com",
+    "name": "Galeria Splot",
+    "tourism": "gallery",
+    "website": "https://www.splotgallery.com/"
+   }
+  },
+  {
+   "type": "way",
+   "id": 25222015,
+   "center": {
+    "lat": 54.4344357,
+    "lon": 18.5678698
+   },
+   "tags": {
+    "leisure": "park",
+    "name": "Skwer im. Andrzeja Grubby"
+   }
+  },
+  {
+   "type": "way",
+   "id": 25226146,
+   "center": {
+    "lat": 54.4394073,
+    "lon": 18.5650393
+   },
+   "tags": {
+    "leisure": "park",
+    "name": "Skwer Arkadiusza Rybickiego"
+   }
+  },
+  {
+   "type": "way",
+   "id": 75778901,
+   "center": {
+    "lat": 54.4450699,
+    "lon": 18.5677449
+   },
+   "tags": {
+    "addr:city": "Sopot",
+    "addr:housenumber": "63",
+    "addr:postcode": "81-767",
+    "addr:street": "Bohaterów Monte Cassino",
+    "building": "commercial",
+    "name": "Promenada Sopocka",
+    "shop": "department_store"
+   }
+  },
+  {
+   "type": "way",
+   "id": 124736239,
+   "center": {
+    "lat": 54.4434286,
+    "lon": 18.5628215
+   },
+   "tags": {
+    "addr:city": "Sopot",
+    "addr:country": "PL",
+    "addr:housenumber": "25",
+    "addr:postcode": "81-767",
+    "addr:street": "Bohaterów Monte Cassino",
+    "building": "yes",
+    "name": "Dom Handlowy Monte",
+    "opening_hours": "Mo-Fr 11:00-19:00; Sa 11:00-16:00; Su off",
+    "shop": "mall"
+   }
+  },
+  {
+   "type": "way",
+   "id": 169256229,
+   "center": {
+    "lat": 54.4313341,
+    "lon": 18.5662266
+   },
+   "tags": {
+    "addr:city": "Sopot",
+    "addr:housenumber": "8-10",
+    "addr:postcode": "81-745",
+    "addr:street": "Polna",
+    "amenity": "marketplace",
+    "building": "roof",
+    "layer": "1",
+    "name": "Sopocki Rynek",
+    "opening_hours": "\"W sobotę bez konkretnych godzin\"",
+    "wheelchair": "yes"
+   }
+  },
+  {
+   "type": "way",
+   "id": 300954437,
+   "center": {
+    "lat": 54.4519725,
+    "lon": 18.5606462
+   },
+   "tags": {
+    "addr:city": "Sopot",
+    "addr:country": "PL",
+    "addr:housenumber": "63",
+    "addr:postcode": "81-715",
+    "addr:street": "Jana Jerzego Haffnera",
+    "building": "yes",
+    "fee": "yes",
+    "museum": "archaeological",
+    "name": "Skansen Archeologiczny Grodzisko - Oddział Muzeum Archeologicznego w Gdańsku",
+    "name:pl": "Skansen Archeologiczny Grodzisko",
+    "opening_hours": "Mo off",
+    "operator": "Województwo Pomorskie",
+    "operator:type": "public",
+    "source:geometry": "geoportal.gov.pl:ortofoto",
+    "tourism": "museum",
+    "wikidata": "Q9276493",
+    "wikimedia_commons": "Category:Grodzisko_in_Sopot,_Poland",
+    "wikipedia": "pl:Grodzisko w Sopocie"
+   }
+  }
+ ]
+}

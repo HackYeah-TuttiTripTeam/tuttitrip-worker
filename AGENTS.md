@@ -21,6 +21,8 @@ Product rule: deterministic logic (solver, linter, pricing) never depends on
 an LLM, on DBOS or on the database. Agents only draft; pure code decides.
 The architecture tests enforce it.
 
+The worker does not compute the fairness algorithm ([docs/algorytm.md](docs/algorytm.md)); the backend runs it in `planning/**/logic` (decision D1), and the worker only produces its inputs (place candidates, parsed pasted plans and offers) and writes justifications from its results.
+
 ## Commands
 
 ```bash
@@ -30,8 +32,11 @@ uv run tuttitrip-worker                   # run the worker (needs Postgres, see 
 docker compose up --build                 # the worker in a container, on the backend's compose network
 uv run python scripts/export_contracts.py # regenerate contracts/jobs.schema.json
 
-# Must all pass before every commit (CI runs the same):
-uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest
+# Must all pass before every commit (this is all CI runs: lint, types, unit + architecture tests):
+uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest -m "not integration and not e2e"
+
+# Local only, before the PR is marked ready (CI does not run them; part of the smoke step):
+uv run pytest -m integration
 ```
 
 ## Layout: vertical slices
@@ -39,16 +44,21 @@ uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run
 ```text
 src/tuttitrip_worker/
   contracts.py         canonical job contract (names, payloads, version); pure
+  quotes.py            find_quote(): verbatim-quote check for any domain; pure
   main.py              composition root: WORKFLOWS, SCHEDULES, run() (launch + SIGTERM)
   healthcheck.py       Docker HEALTHCHECK (liveness file written by main)
   shared/              shared kernel, imports no domain
     config/            Settings (pydantic-settings)
     dbos/              DBOS config, queues + limits, report_progress()
-    llm/               model catalog (OpenRouter, local) and embedder
+    llm/               model catalog (GB10 Qwen, basal, JEV, OpenRouter, local) and embedder
     db/                async engine, table mappings (no DDL), job_results step
   system/              ping (smoke test) + heartbeat schedule
-  planning/            durable planner agent (generate_trip_plan)
+  planning/            durable planner agent (generate_trip_plan), write_justifications
+  linter/              parse_pasted_plan: agent without tools, `logic/quotes.py` (quote must occur in the text)
+  accommodation/       extract_offer_evidence: Qwen quotes + decision-model verdicts
   embeddings/          embed_texts -> pgvector; logic/ = pure row building
+  demo/                daily reset of the jury demo account (calls the backend)
+  places/              fetch_place_candidates: Nominatim + Overpass -> cities/places (OSM policies in steps.py)
 src/tuttitrip_dbos_dashboard/  read-only DBOS dashboard (not a worker domain), see below
 contracts/jobs.schema.json   rendered contract, compared with the backend mirror
 deploy/                host deployment scripts (bash)
@@ -65,6 +75,7 @@ tests/architecture/    structure + dependency rules (pytest-archon)
 | `schemas.py` | yes | Internal Pydantic models. Pure. |
 | `steps.py` | if I/O | `@DBOS.step` functions: model calls, HTTP, database. |
 | `agents.py` | if LLM | Module-level Pydantic AI agents with `DBOSDurability`. |
+| `constants.py` | optional | Fixed values with docstrings (see "Magic values"). Pure. |
 | `logic/` | optional | Pure logic (rules, math, row building). |
 | `services/` | optional | Larger I/O helpers used by steps. |
 | `<subdomain>/` | optional | Same layout, nested. |
@@ -76,13 +87,14 @@ Anything else in a domain directory fails `test_domain_contains_only_known_files
 1. `shared` never imports a domain (transitive).
 2. A domain never imports another domain, except its `schemas` (direct).
    Shared code goes to `shared/`.
-3. **Pure modules** = `tuttitrip_worker.contracts`, every `schemas.py` and every
+3. **Pure modules** = `tuttitrip_worker.contracts`, `tuttitrip_worker.quotes`, every `schemas.py` and every
    module in a `logic/` package. They must not reach `pydantic_ai`, `dbos`,
    `sqlalchemy`, `psycopg`, `pgvector`, `openai` or `httpx`, even
    transitively, nor `workflows`/`steps`/`agents`/`services`/`shared`/`main`.
    Identified by module path (regex), so adding a `logic/` package or a
    `schemas.py` opts it in automatically.
-4. Only `agents.py` and `shared.llm` import `pydantic_ai`.
+4. Only `agents.py` and `shared.llm` import `pydantic_ai`, `pydantic_ai_harness` and
+   `stackone_defender`.
 5. Only `workflows.py`, `steps.py`, `shared.dbos`, `shared.db` and `main`
    import `dbos`.
 6. Only `steps.py` and `shared.db` import `sqlalchemy`/`psycopg`/`pgvector`.
@@ -109,9 +121,17 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
    (removed in pydantic-ai v3). Tools that do I/O need their own `@DBOS.step`.
 4. **Models cross step boundaries as strings.** A `Model` instance cannot be
    serialized into a step; unregistered instances are rejected. Agents use the
-   ids `tuttitrip:openrouter` / `tuttitrip:local` (`shared/llm/models.py`) and
-   the catalog's `ResolveModelId` capability builds the real model inside the
-   step from settings. Tests swap models with `catalog.override(TestModel())`.
+   ids of `shared/llm/models.py` (`ModelKey`, same as the backend's catalog):
+   `tuttitrip:agent` (Qwen3.8-27B thinking on the GB10, `FallbackModel` to
+   OpenRouter), `tuttitrip:chat` (Qwen chat, same fallback), `tuttitrip:decide`
+   (basal, escalates to Qwen chat on `UnfillableRoute` or an API error),
+   `tuttitrip:decide-laya`, `tuttitrip:decide-cloud` (JEV via OpenRouter),
+   `tuttitrip:openrouter`, `tuttitrip:local`. The catalog's `ResolveModelId`
+   capability builds the real model inside the step from settings.
+   Decision models take at most 10 pick-one options (`UserError` otherwise).
+   `scripts/smoke_models.py` calls every leg against the real endpoints (not in CI).
+   Links without an API key are left out of a chain; a chain without any key
+   raises `UserError` when the model is built. Tests swap models with `catalog.override(TestModel())`.
 5. **Register before launch.** Every workflow, step and agent must exist
    before `DBOS.launch()`: `main.py` imports all workflow modules at import
    time. Queues are registered after launch with `DBOS.register_queue`
@@ -177,15 +197,18 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
   old version. Use the `sync-contracts` skill.
 - **Data.** The backend owns the schema and migrations. The worker connects
   as role `tuttitrip_worker` (`TUTTITRIP_WORKER_DATABASE_URL`) with SELECT on
-  the domain tables it reads (`trips`, `profiles`) and write access only to
-  `embeddings`, `job_results`, `worker_heartbeats`. `shared/db/tables.py`
+  the domain tables it reads (`trips`, `profiles`, `pasted_documents`, `plan_versions`) and write access only to
+  `embeddings`, `job_results`, `worker_heartbeats`, the OSM fetch state
+  (`city_fetches`, `city_fetch_attempts`) and `notifications` (SELECT, INSERT,
+  DELETE, no UPDATE). `shared/db/tables.py`
   maps their columns without DDL; `tests/test_no_ddl.py` forbids
   `create_all`/DDL. A new table = backend migration + `deploy/worker-grants.sql`
   there, then a mapping here.
 - **Results.** Small results are the workflow output. Large or persistent
   ones go to `job_results` (`save_job_result` step) or domain tables
   (`embeddings`). Payloads stay small (ids + parameters); fetch data by id in
-  a step. The worker never calls the backend over HTTP.
+  a step. The worker never calls the backend over HTTP, with one exception: the daily
+  `reset_demo_account` schedule (see "Demo reset").
 - **Idempotency.** The backend enqueues with a deterministic workflow id
   (`return-existing`), so a repeated request returns the same job. Steps
   upsert: `embeddings.id` is a UUIDv5 of (source, model, text), `job_results`
@@ -202,7 +225,110 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | --- | --- | --- | --- |
 | `generate_trip_plan` | `openrouter` (or `local_llm` for `provider=local`) | `{contract_version, trip_id, request, provider}` | `{contract_version, destination, days, highlights}` |
 | `embed_texts` | `default` | `{contract_version, source_kind, source_id, texts}` | `{contract_version, model, dimensions, stored}` |
+| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` | `{contract_version, city_slug, source, refreshed, stored}` |
+| `parse_expense_text` | `local_llm` | `{contract_version, trip_id, text, locale}` | `{contract_version, amount_minor, currency, description, payer_name, included_names, excluded_names, confidence}` |
+| `read_receipt` | `local_llm` | `{contract_version, trip_id, evidence_id}` | `{contract_version, amount_minor, currency, spent_on, merchant, category, needs_confirmation, reasons}` |
 | `ping` | `default` | `{contract_version, message}` | `{contract_version, message, worker_app_version}` |
+| `parse_pasted_plan` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, city_slug, provider}` | `{contract_version, items, unread, matches}` |
+| `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence: [{requirement_key, quotes: [{text, verdict?, confidence?}]}]}`; `quotes == []` = silent offer, `verdict` null = judge unavailable |
+| `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored}` |
+| `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, locale, provider}` | `{contract_version, justifications}` |
+
+`parse_pasted_plan` reads the plan by `document_id` + `trip_id` (SELECT on
+`pasted_documents`), runs `pasted_plan_parser` on `tuttitrip:chat`, keeps only
+items the text backs up (verbatim one-line quote, name, times and amount in the quote; see `linter/logic/quotes.py`), lists the rest
+in `unread`, matches each item to the catalog places of `city_slug`
+(`linter/logic/candidates.py` ranks at most nine by name similarity with
+`difflib`; the decision model `place_matcher` on `tuttitrip:decide` picks one
+or "none"; `matched` needs a reported confidence of at least 0.5, else
+`needs_confirmation`; no candidates, "none" or the model switched off
+(`TUTTITRIP_LINTER__MATCH_WITH_MODEL=false`) or down leaves it to the
+similarity threshold 0.85), and stores the output with `matches` in
+`job_results`. Real-model check: `scripts/smoke_parse_plan.py`.
+\[1] Dokładnie jedno z `city_query` i `city_slug`.
+Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
+
+`write_justifications` reads `plan_versions.result` by `plan_id` (SELECT; the grant is the
+backend's, tuttitrip-backend#73) and cuts the verdicts, `explain()` and the people's names out of
+it (`planning/logic/verdict_facts.py`). The `verdict_justifier` agent (`tuttitrip:chat`,
+temperature 0) words at most two sentences per place, in batches of
+`TUTTITRIP_PLANNING__JUSTIFICATION_BATCH_SIZE`. Only the algorithm's numbers reach the text: the output
+validator (`planning/logic/justification_check.py`) sends the agent back (`ModelRetry`) when a text has a
+number that is not in the data (a fraction may be written as a percent), a capitalised word that is not
+a given name (declined forms pass), more than two sentences, or when a place is missing or doubled.
+After the last retry the texts that fail are dropped and the place has no entry; the backend then uses
+its template. Entries are group-level (`profile_id` null) with `source="model"`. An unknown `plan_id`
+ends with `document_not_found`. Children's data goes to the model: use `provider=local` (GB10) unless
+the team allows OpenRouter for justifications. The backend enqueues with the workflow id
+`write_justifications:<plan_id>`, so a repeated request returns the same job and costs no second call.
+
+## Expenses
+
+`parse_expense_text` and `read_receipt` (`expenses/`). Prices are never
+guessed: the amount must be written in the text as a whole number token
+(`logic/amounts.py`; `120` is not accepted for `120,50 zł`), a sentence with
+two priced amounts is refused as ambiguous, and a currency or name the text
+does not contain is dropped. Output `confidence` of `parse_expense_text` is
+always `None`: the chat model reports none and the check is binary. For
+`read_receipt`, `needs_confirmation` has reasons (`items_sum_mismatch`,
+`date_outside_trip`, `low_confidence`...); the decision model's confidence is
+the lowest margin of its two answers, and none counts as low.
+
+The image goes only to `tuttitrip:vision` (the GB10, no `FallbackModel`, no
+OpenRouter link). A GB10 outage ends the job with `model_output_invalid` and
+the message "the local model is unavailable ... enter the expense by hand";
+`ContractError` is not retried. The image is read and sent inside one step, so
+its bytes are never a step input or output (a test searches the DBOS system
+tables for them, raw and base64).
+
+DBOS keeps workflow inputs and step outputs, and `DBOSDurability` stores the
+model requests and responses of the text agents, in the system database. So
+the typed expense sentence and the OCR text of a receipt (not the image) stay
+there until the workflow history is deleted; set a retention for DBOS history
+before real user data goes through it.
+
+## Notifications
+
+The worker never calls the backend for notifications; it inserts rows into
+`notifications` (backend#133) and a trigger wakes the live stream.
+`shared/db/notifications.py` has the `notify_user` step:
+`INSERT ... ON CONFLICT (user_sub, dedupe_key) DO NOTHING` with an id derived
+from (user, key), so retries and recovery add nothing. The `dedupe_key` names
+the thing and its version or day (`plan_ready:<trip>:<workflow>`). Allowed
+types and buttons are `NotificationType` and `NotificationActionCode` in
+`contracts.py` (a test pins them to the backend's lists). The recipient of
+`plan_ready` is the workflow's authenticated user (`DBOS.authenticated_user`,
+set by the backend's `enqueue(user=...)`), so the payload needs no `user`. The
+worker cannot read `trip_members`; a notification for several people needs the
+recipients in the job input. `purge_notifications` (schedule, 03:30) deletes
+read rows older than 90 days and all older than 180, 1000 per transaction.
+
+## Demo reset
+
+`reset_demo_account` (schedule, 04:00 `Europe/Warsaw`, `SCHEDULE_TIMEZONE`)
+restores the jury demo account. The worker has no write grants on domain
+tables and no demo credentials, so the reset logic stays in the backend
+(`tuttitrip.demo`): the step POSTs `/api/v1/internal/demo/reset` to the API
+container on the Docker network (`tuttitrip-api[-<env>]:8000`, never through
+the gateway, which answers 404 for `/api/v1/internal/`) with the bearer secret
+`TUTTITRIP_DEMO__RESET_SECRET` (generated by the backend deploy into both env
+files). The backend answers `{status: reset|disabled, trips}`; `disabled` (demo
+off) is success. Without the secret the run logs a WARNING and, outside
+`local`, fails. The step makes 3 attempts (DBOS `max_attempts`) for transport
+errors and 5xx; a 4xx (wrong secret) is not retried and fails the run. Retries are
+safe: the backend reset is atomic and serialized by an advisory lock.
+
+## LLM benchmark (`bench`)
+
+`src/tuttitrip_worker/bench/` is a tool, not a domain: `python -m tuttitrip_worker.bench`
+runs a use case with each catalog model on the golden sets in `tests/golden/` and writes
+`docs/benchmarks/llm-<date>.md`. It calls real models, so it is manual only (never in CI).
+Nothing in the worker imports it (test-enforced, `TOOLS` in `tests/architecture/layout.py`);
+it still follows rules 3 to 6 (`schemas.py`, `constants.py` and `logic/` are pure, only
+`agents.py` imports `pydantic_ai`). Cases call the production functions with
+`Subject.using(agent)`, so prompts, validators and retries are the worker's own. Code checks
+score amounts, dates, ids and verdicts; the judge (rubric in `tests/golden/rubric.md`) only
+scores what code cannot. Method, options and keys: `docs/benchmarks/README.md`.
 
 ## Conventions
 
@@ -214,20 +340,128 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 - pytest strict, warnings are errors. Tests never call real models
   (`models.ALLOW_MODEL_REQUESTS = False`) and never need Postgres: the `dbos`
   fixture launches DBOS on a throwaway SQLite file and the `client` fixture
-  enqueues through `DBOSClient` exactly like the backend. Steps that touch
+  enqueues through `DBOSClient` exactly like the backend. Every test that uses
+  either fixture is marked `integration` automatically (`tests/conftest.py`):
+  it launches a real DBOS runtime (about 3 s each) and runs locally, not on CI.
+  Use the marker `e2e` for tests against real services. Steps that touch
   Postgres are replaced with `monkeypatch` in workflow tests; their SQL is
   compiled and asserted separately.
 - Domain tests go in `tests/domains/`, shared infrastructure in `tests/shared/`.
+
+## Magic values
+
+No magic strings or numbers in code: a bare literal that carries meaning (a threshold, a
+limit, a header name, a status or error code repeated in places, a regex, a spec constant)
+gets a name. Obvious values stay inline: `0`, `1`, `-1`, `""`, `True`/`False`, list
+indices, `status.HTTP_*`, and literals in tests.
+
+- **Fixed values** (HTTP header names, error codes, progress stages, enum-like literals, OSM
+  and Overpass identifiers, regexes, limits that are part of the contract) go to the domain's
+  `constants.py` (`shared/<sub>/constants.py` when several domains use them). Each one is a
+  typed `Final` constant with a docstring that says what it is.
+- **Deployment-tunable values** (timeouts, upload and rate limits, retry counts, TTLs, cron
+  schedules, URLs, model names) are `pydantic-settings` fields with a default and
+  `Field(description=...)` in `shared/config/settings.py`, and a line in `.env.example` (`tests/test_settings.py` checks it).
+- `constants.py` is pure like `schemas.py` and `logic/` (test-enforced). A domain imports its own
+  `constants.py` and `shared`'s, never another domain's.
+- Ruff enforces the comparison part (`PLR2004`, strings included; off in tests). The rest
+  is code review.
+
+```python
+# places/constants.py
+OSM_AREA_ID_OFFSET: Final = 3_600_000_000
+"""Overpass area id = this offset + the OSM relation id."""
+
+
+# shared/config/settings.py
+class DbosSettings(BaseModel):
+    step_max_attempts: int = Field(default=3, ge=1, description="Attempts of a step.")
+```
 
 ## Settings and secrets
 
 - `shared/config/settings.py`: prefix `TUTTITRIP_`, nested delimiter `__`,
   plus the standard names `DBOS_SYSTEM_DATABASE_URL` and `DBOS__APPVERSION`.
   `.env.example` must list exactly the Settings fields (`tests/test_settings.py`).
+- `TUTTITRIP_LLM__GB10_API_KEY` is the LiteLLM key of `llm.gburek.app` (Qwen and
+  basal and Laya); empty means the GB10 models are skipped.
 - `OPENROUTER_API_KEY` is read by Pydantic AI under its standard name unless
   `TUTTITRIP_LLM__OPENROUTER_API_KEY` is set.
 - Never commit secrets or `.env`, never print them. CI/deploy secrets are
   GitHub Actions secrets; host-only settings live in `~/tuttitrip/worker.env`.
+
+## Design system
+
+Skill `tuttitrip-design-system` (`.claude/skills/tuttitrip-design-system`) jest wspólny dla wszystkich
+repozytoriów TuttiTrip; UI powstaje we frontendzie. Teksty pisane przez modele w workerze (uzasadnienia
+werdyktów, podsumowania, pytania) mają ton i słownik z README skilla: po polsku albo angielsku według
+języka użytkownika, na „Ty”, krótko, bez emoji, z nazwami z słownika („sprawdzenie planu”, werdykty
+„Obowiązkowo”, „Pasuje”, „Kultowe, ale nie Twoje”, „Pomiń”). Wpisz te zasady w instrukcje agentów.
+
+## Praca agentów nad issues
+
+Nad backlogiem pracuje równolegle kilku agentów AI i ludzi. Te zasady pilnują, żeby nikt nie wchodził
+innym w drogę i żeby każda funkcja przeszła ten sam proces. Dotyczą też ludzi.
+
+1. Wybór issue. Bierzesz tylko issue z tablicy
+   [TuttiTrip](https://github.com/orgs/HackYeah-TuttiTripTeam/projects/1) ze statusem Todo, bez etykiety
+   `in-progress` i bez przypisanej osoby. Linia „Zależy od:” w opisie wymienia issues, które muszą być
+   zmergowane do `develop`. Jeśli któreś nie jest, pracuj tylko na jego kontrakcie (np. stała odpowiedź z
+   OpenAPI) i napisz to w komentarzu. Kolejność: najpierw P0, potem P1, w obrębie milestone'u.
+2. Zajęcie issue, zanim napiszesz kod:
+   - `gh issue edit <nr> --add-label in-progress`,
+   - Status na tablicy: In Progress,
+   - komentarz „Start” z nazwą gałęzi, ścieżką worktree i krótkim planem (pliki, które zmienisz).
+   Etykieta `in-progress` znaczy „zajęte”. Nie bierz takiego issue i nie zmieniaj go bez zgody zespołu.
+3. Worktree i gałąź. Nigdy nie pracuj w głównym klonie repozytorium. Jedno issue to jeden worktree, jedna
+   gałąź i jeden PR do `develop`:
+
+   ```bash
+   git -C ~/Documents/GitHub/<repo> fetch origin
+   git -C ~/Documents/GitHub/<repo> worktree add -b feature/<nr>-<krotka-nazwa> \
+     ~/Documents/GitHub/worktrees/tuttitrip/<repo>-<nr>-<krotka-nazwa> origin/develop
+   ```
+
+   (`<repo>` to `tuttitrip-backend`, `tuttitrip-worker` albo `tuttitrip-frontend`; w repo zbiorczym
+   `tuttitrip` gałąź bierzesz z `origin/main`.)
+4. Komentarze ze statusem w issue po każdym etapie: plan, implementacja z testami, wynik smoke testu,
+   wynik review subagenta, link do PR. Krótko: co zrobione, co dalej, co blokuje. Gdy utkniesz: etykieta
+   `blocked` i komentarz z powodem i tym, czego potrzebujesz.
+5. Pliki wspólne, w których łatwo o konflikt, zmieniaj małymi krokami i przed PR rób
+   `git fetch origin && git rebase origin/develop`:
+   - `src/tuttitrip_worker/contracts.py` i `contracts/jobs.schema.json` (najpierw tu, potem lustro w
+     backendzie, skill `sync-contracts`),
+   - `main.py` (rejestracja workflowów), `shared/llm/models.py` (katalog modeli), `shared/dbos/runtime.py`.
+6. Smoke test jest obowiązkowy dla KAŻDEGO zrealizowanego feature'a. Podglądy gałęzi są domyślnie wyłączone (zmienna organizacji `PREVIEW_DEPLOYS=false`, oszczędzamy
+   moc obliczeniową): develop i main wdrażają się zawsze, gałąź tylko z etykietą `preview` na PR (albo gdy
+   zmienna ma wartość `true`). Użyj etykiety wyłącznie, gdy żywy podgląd jest niezbędny; w pozostałych
+   przypadkach smoke test robisz lokalnie, a po merge'u sprawdzasz develop. Pominięty podgląd zostawia
+   w podsumowaniu joba jedną linię "Preview disabled (PREVIEW_DEPLOYS=false); add label `preview` to deploy".
+   CI sprawdza tylko lint, typy, testy jednostkowe i architektury (`pytest -m "not integration and not e2e"`).
+   Testy z markerami `integration` i `e2e` (DBOS na SQLite, prawdziwe usługi) nie chodzą na CI, więc
+   przed oznaczeniem PR jako gotowego uruchom lokalnie `uv run pytest` (cały zestaw, albo osobno
+   `uv run pytest -m integration`) i wpisz wynik w komentarzu ze smoke testem.
+   Przejdź scenariusz z kryteriów akceptacji issue:
+   - lokalnie: backend (lokalny stos) i worker uruchomione razem (README); po merge'u to samo na develop,
+   - tylko gdy podgląd jest niezbędny: etykieta `preview` na PR wdraża worker gałęzi,
+   - worker gałęzi startuje tylko obok wdrożenia backendu o tej samej nazwie gałęzi (deploy/CONVENTIONS.md
+     w backendzie); bez niego uruchom backend i worker lokalnie (README),
+   - zleć zadanie przez API (`POST /api/v1/...` z backendu) i odpytuj `GET /api/v1/jobs/{id}` aż do
+     `SUCCESS`; przy błędzie sprawdź kroki workflow w panelu DBOS albo logach kontenera.
+   Wynik (kroki, odpowiedzi albo zrzuty ekranu) wpisz w komentarzu w issue. Bez zielonego smoke testu
+   nie ma PR.
+7. Review subagenta. Po zielonym smoke teście uruchom subagenta-recenzenta z diffem gałęzi, treścią
+   issue i story źródłową. Sprawdza:
+   - uproszczenie kodu i zbędną złożoność (skille `simplify` i `ponytail-review`),
+   - złożoność logiki,
+   - poprawność biznesową względem story, słownika z dokumentu architektonicznego i, przy logice
+     planowania, specyfikacji algorytmu (`docs/algorytm.md` w tuttitrip-backend).
+   Popraw to, co znalazł, i **powtórz smoke test**. Wynik review i drugiego smoke testu wpisz w komentarzu.
+8. PR. Dopiero po tym otwórz PR do `develop` skillem `open-pr` (`Closes #<nr>`) i ustaw Status: In
+   Review. Po merge'u zdejmij `in-progress`, usuń worktree
+   (`git -C ~/Documents/GitHub/<repo> worktree remove <ścieżka>`); zamknij issue ręcznie
+   (`gh issue close <nr> --comment "Zmergowane w #<PR>"`), bo `Closes` zamyka issue dopiero po merge'u
+   do `main` (wydanie). Status: Done.
 
 ## Zgłoszenia, PR i wydania
 
@@ -262,7 +496,8 @@ Zgłoszenia (issues):
   - [ ] Given gotowy plan, When kliknę "Pobierz PDF", Then dostanę plik z planem dzień po dniu
 
   ### Definition of Done
-  - [ ] CI zielone (lint, typy, testy, testy architektury)
+  - [ ] CI zielone (lint, typy, testy jednostkowe, testy architektury)
+  - [ ] Lokalnie przeszły testy integracyjne i smoke test (`uv run pytest -m integration`)
   - [ ] PR zmergowany do `develop` i sprawdzony na wdrożeniu develop
 
   ### Obszar
@@ -300,7 +535,7 @@ Wydania:
 ## Git flow
 
 - `main` is production, `develop` is integration; both protected (PR + green
-  `checks`, no force-push, no deletion) where the GitHub plan allows it.
+  `lint` and `tests`, no force-push, no deletion) where the GitHub plan allows it.
 - Branch from `develop`: `feature/<short-name>`, `fix/<short-name>`,
   `chore/<short-name>`. PR into `develop`; release = PR `develop` -> `main`.
 - After a merge the `Delete merged branch` workflow
@@ -315,9 +550,15 @@ Wydania:
 
 ## Deployment
 
-Every push runs CI (`checks` and `contracts-check` on `[self-hosted, hackathon]`),
+Every push runs CI once (checks run on push only): `lint` and
+`tests` and `contracts-check` in parallel on `[self-hosted, hackathon]`,
 then `deploy` on the runner installed on the host
-(`[self-hosted, tuttitrip-worker-deploy]`, in `~/tuttitrip-worker-runner`).
+(`[self-hosted, tuttitrip-worker-deploy]`, in `~/tuttitrip-worker-runner`). A
+branch preview deploys only when the org variable `PREVIEW_DEPLOYS` is `true` or
+the PR has the label `preview` (the `preview-gate` job decides and writes a
+summary line when it is off), without waiting for the checks; `main` and `develop` wait
+for `lint` and `tests`. A newer push cancels the unfinished checks of the same
+branch, never a deployment.
 
 | Branch | Image | Container | Backend env file |
 | --- | --- | --- | --- |

@@ -13,11 +13,13 @@ legitimate chains such as workflows -> steps -> sqlalchemy exist.
 import pytest
 from pytest_archon import archrule
 
-from tests.architecture.layout import PACKAGE, top_level_domains
+from tests.architecture.layout import PACKAGE, TOOLS, top_level_domains
 
 DOMAINS = top_level_domains()
 IO_FRAMEWORKS = (
     "pydantic_ai",
+    "pydantic_ai_harness",
+    "stackone_defender",
     "dbos",
     "sqlalchemy",
     "psycopg",
@@ -25,7 +27,12 @@ IO_FRAMEWORKS = (
     "openai",
     "httpx",
 )
-PURE = (rf"^{PACKAGE}\.contracts$", r"\.schemas$", r"\.logic(\.|$)")
+PURE = (
+    rf"^{PACKAGE}\.(contracts|quotes|prompts)$",
+    r"\.schemas$",
+    r"\.logic(\.|$)",
+    r"\.constants$",
+)
 
 
 def _tree(name: str) -> tuple[str, str]:
@@ -85,10 +92,12 @@ def test_pure_modules_do_not_reach_io_layers() -> None:
 
 def test_only_agents_and_shared_llm_import_pydantic_ai() -> None:
     (
-        archrule("agents live in agents.py", use_regex=True)
+        archrule("agents and Harness live in agents.py", use_regex=True)
         .match(rf"^{PACKAGE}(\.|$)")
         .exclude(r"\.agents$", rf"^{PACKAGE}\.shared\.llm(\.|$)")
-        .should_not_import(r"^pydantic_ai(\.|$)")
+        .should_not_import(
+            r"^(pydantic_ai|pydantic_ai_harness|stackone_defender)(\.|$)"
+        )
         .check(PACKAGE, only_direct_imports=True)
     )
 
@@ -113,5 +122,16 @@ def test_only_steps_and_shared_db_touch_the_database() -> None:
         .match(rf"^{PACKAGE}(\.|$)")
         .exclude(r"\.steps$", rf"^{PACKAGE}\.shared\.db(\.|$)")
         .should_not_import(r"^sqlalchemy(\.|$)", r"^psycopg(\.|$)", r"^pgvector(\.|$)")
+        .check(PACKAGE, only_direct_imports=True)
+    )
+
+
+@pytest.mark.parametrize("tool", sorted(TOOLS))
+def test_nothing_imports_a_tool_package(tool: str) -> None:
+    (
+        archrule("tools are leaves", comment="the benchmark is run by hand only")
+        .match(*_tree(PACKAGE))
+        .exclude(*_tree(f"{PACKAGE}.{tool}"))
+        .should_not_import(*_tree(f"{PACKAGE}.{tool}"))
         .check(PACKAGE, only_direct_imports=True)
     )
