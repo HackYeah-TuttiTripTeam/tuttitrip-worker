@@ -17,8 +17,12 @@ from tuttitrip_worker.contracts import (
 )
 from tuttitrip_worker.expenses import steps
 from tuttitrip_worker.expenses.agents import judge_reading, read_typed_expense
-from tuttitrip_worker.expenses.logic.amounts import amount_is_in_text
-from tuttitrip_worker.expenses.logic.receipt import build_output, clean_currency
+from tuttitrip_worker.expenses.logic.amounts import (
+    currency_in_text,
+    names_in_text,
+    require_amount,
+)
+from tuttitrip_worker.expenses.logic.receipt import build_output
 from tuttitrip_worker.expenses.schemas import TripDates
 from tuttitrip_worker.shared.db import job_results
 from tuttitrip_worker.shared.dbos.runtime import PORTABLE, report_progress
@@ -34,18 +38,15 @@ async def _keep(workflow: Workflow, output: dict[str, Any]) -> None:
         await job_results.save_job_result(workflow_id, workflow.value, output)
 
 
-def _names(names: list[str]) -> list[str]:
-    cleaned = (name.strip()[:NAME_MAX] for name in names)
-    return [name for name in dict.fromkeys(cleaned) if name][:NAMES_MAX]
-
-
 @DBOS.workflow(name=Workflow.PARSE_EXPENSE_TEXT.value, serialization_type=PORTABLE)
 async def parse_expense_text(payload: dict[str, Any]) -> dict[str, Any]:
     """Read one typed sentence into the fields of an expense.
 
     The amount must be written in the text and match the model's number;
     otherwise the job fails, because an amount is never guessed. Names stay as
-    written; the backend matches them to profiles.
+    written (a name or a currency that is not in the text is dropped); the
+    backend matches names to profiles. ``confidence`` stays ``None``: the chat
+    model reports none, and the check against the text is binary.
 
     Args:
         payload: JSON object matching ``ParseExpenseTextInput``.
@@ -62,19 +63,22 @@ async def parse_expense_text(payload: dict[str, Any]) -> dict[str, Any]:
     reading = await read_typed_expense(
         request.text, str(request.trip_id), request.locale
     )
-    if reading.amount_minor is None or not amount_is_in_text(
-        request.text, reading.amount_text, reading.amount_minor
-    ):
+    text = request.text
+    amount = require_amount(text, reading.amount_minor, reading.amount_text)
+    if amount is None:
         raise contract_failure(
             ErrorCode.MODEL_OUTPUT_INVALID, "the text holds no clear amount"
         )
+    payer = names_in_text(text, [reading.payer_name or ""])
     output = ParseExpenseTextOutput(
-        amount_minor=reading.amount_minor,
-        currency=clean_currency(reading.currency),
+        amount_minor=amount,
+        # Only what the text says: a currency or a name the model made up is
+        # dropped (the trip currency applies; the backend asks about the rest).
+        currency=currency_in_text(text, reading.currency),
         description=reading.description.strip()[:DESCRIPTION_MAX],
-        payer_name=(reading.payer_name or "").strip()[:NAME_MAX] or None,
-        included_names=_names(reading.included_names),
-        excluded_names=_names(reading.excluded_names),
+        payer_name=payer[0][:NAME_MAX] if payer else None,
+        included_names=names_in_text(text, reading.included_names)[:NAMES_MAX],
+        excluded_names=names_in_text(text, reading.excluded_names)[:NAMES_MAX],
     ).model_dump(mode="json")
     await _keep(Workflow.PARSE_EXPENSE_TEXT, output)
     await report_progress("done", 100)
@@ -113,7 +117,7 @@ async def read_receipt(payload: dict[str, Any]) -> dict[str, Any]:
         start=date.fromisoformat(dates["start"]) if dates["start"] else None,
         end=date.fromisoformat(dates["end"]) if dates["end"] else None,
     )
-    judgement = await judge_reading(reading)
+    judgement = await judge_reading(reading, str(request.evidence_id))
     result = build_output(reading, trip, judgement)
     if result is None:
         raise contract_failure(

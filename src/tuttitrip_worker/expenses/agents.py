@@ -3,8 +3,9 @@
 * ``expense_text_parser`` (Qwen chat) reads one typed sentence. It has no
   tools, so an instruction hidden in the sentence can at worst cause a wrong
   reading, and the output validator rejects an amount the text does not hold.
-* ``receipt_reader`` (Qwen chat, vision) reads a receipt or bank screenshot.
-  Local first: the image goes only to our own GB10 unless that is down.
+* ``receipt_reader`` (``tuttitrip:vision``: Qwen chat on the GB10 and nothing
+  else) reads a receipt or bank screenshot. There is no cloud fallback: the
+  image goes only to our own GB10, and when that is down the job fails.
 * ``receipt_judge`` (decision model basal) picks the spending category from the
   text of the reading; decision models never see images.
 
@@ -18,9 +19,14 @@ from pydantic_ai.durable_exec.dbos import DBOSDurability
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import ModelResponse
 
-from tuttitrip_worker.contracts import Workflow, model_output_invalid
-from tuttitrip_worker.expenses.logic.amounts import amount_is_in_text
-from tuttitrip_worker.expenses.logic.prompt import frame_expense_text
+from tuttitrip_worker.contracts import (
+    ContractError,
+    ErrorCode,
+    Workflow,
+    contract_failure,
+    model_output_invalid,
+)
+from tuttitrip_worker.expenses.logic.amounts import require_amount
 from tuttitrip_worker.expenses.schemas import (
     CategoryDecision,
     ExpenseTextReading,
@@ -28,6 +34,7 @@ from tuttitrip_worker.expenses.schemas import (
     ReceiptReading,
     TypedExpense,
 )
+from tuttitrip_worker.prompts import data_block
 from tuttitrip_worker.shared.llm.decisions import (
     model_unavailable,
     reported_confidences,
@@ -83,9 +90,7 @@ def _amount_must_be_written(
     """
     if ctx.last_attempt:
         return reading
-    if reading.amount_minor is None or not amount_is_in_text(
-        ctx.deps.text, reading.amount_text, reading.amount_minor
-    ):
+    if require_amount(ctx.deps.text, reading.amount_minor, reading.amount_text) is None:
         msg = (
             "`amount_text` must be copied exactly from the sentence and "
             "`amount_minor` must be that amount in minor units."
@@ -95,7 +100,7 @@ def _amount_must_be_written(
 
 
 receipt_reader: Agent[None, ReceiptReading] = Agent(
-    model_id(ModelKey.CHAT),
+    model_id(ModelKey.VISION),
     name="receipt_reader",
     output_type=ReceiptReading,
     instructions=(
@@ -125,6 +130,37 @@ receipt_judge: Agent[None, CategoryDecision] = Agent(
 RECEIPT_PROMPT = "Read this receipt or bank screenshot."
 
 
+def frame_expense_text(text: str, seed: str, locale: str) -> str:
+    """User prompt: the locale outside, the text as data inside a unique block.
+
+    Args:
+        text: The untrusted sentence.
+        seed: Stable per-job value, such as the trip id.
+        locale: Validated ``pl`` or ``en``.
+
+    Returns:
+        The prompt.
+    """
+    block = data_block(text, seed, "expense", "The typed expense")
+    return f"Language of the user: {locale}\n{block}"
+
+
+def unavailable(workflow: Workflow) -> ContractError:
+    """Error of a job whose model could not be reached.
+
+    Args:
+        workflow: The workflow that needed the model.
+
+    Returns:
+        A ``ContractError`` the backend shows; the user types the expense.
+    """
+    return contract_failure(
+        ErrorCode.MODEL_OUTPUT_INVALID,
+        f"the local model is unavailable for {workflow.value}; "
+        "enter the expense by hand",
+    )
+
+
 async def read_typed_expense(text: str, seed: str, locale: str) -> ExpenseTextReading:
     """Run the text parser (durable inside a workflow).
 
@@ -145,6 +181,10 @@ async def read_typed_expense(text: str, seed: str, locale: str) -> ExpenseTextRe
         )
     except UnexpectedModelBehavior as error:
         raise model_output_invalid(Workflow.PARSE_EXPENSE_TEXT) from error
+    except Exception as error:
+        if model_unavailable(error):
+            raise unavailable(Workflow.PARSE_EXPENSE_TEXT) from error
+        raise
     return result.output
 
 
@@ -167,20 +207,29 @@ async def read_receipt_image(data: bytes, media_type: str) -> ReceiptReading:
         )
     except UnexpectedModelBehavior as error:
         raise model_output_invalid(Workflow.READ_RECEIPT) from error
+    except Exception as error:
+        if model_unavailable(error):
+            raise unavailable(Workflow.READ_RECEIPT) from error
+        raise
     return result.output
 
 
-def describe(reading: ReceiptReading) -> str:
+def describe(reading: ReceiptReading, seed: str) -> str:
     """Text of a reading for the decision model (never the image).
+
+    The text comes from an image, so it is untrusted: it goes in a block with a
+    tag the image cannot know.
 
     Args:
         reading: The vision model's reading.
+        seed: Stable per-job value for the block tag (the evidence id).
 
     Returns:
-        Merchant and item names, one per line.
+        Merchant and item names, one per line, as data.
     """
     names = [line.name for line in reading.items if line.name]
-    return "\n".join([f"Merchant: {reading.merchant or 'unknown'}", *names])
+    text = "\n".join([f"Merchant: {reading.merchant or 'unknown'}", *names])
+    return data_block(text, seed, "receipt", "The reading")
 
 
 def _weakest(confidence: dict[str, float], fields: tuple[str, ...]) -> float | None:
@@ -198,7 +247,7 @@ def _weakest(confidence: dict[str, float], fields: tuple[str, ...]) -> float | N
     return min(known) if len(known) == len(values) else None
 
 
-async def judge_reading(reading: ReceiptReading) -> Judgement:
+async def judge_reading(reading: ReceiptReading, seed: str) -> Judgement:
     """Ask the decision model for the category (durable inside a workflow).
 
     Only provider failures count as "unavailable": the category stays empty and
@@ -206,12 +255,13 @@ async def judge_reading(reading: ReceiptReading) -> Judgement:
 
     Args:
         reading: The vision model's reading.
+        seed: Stable per-job value for the block tag (the evidence id).
 
     Returns:
         The decision with the confidence it reported, if any.
     """
     try:
-        result = await receipt_judge.run(describe(reading))
+        result = await receipt_judge.run(describe(reading, seed))
     except Exception as error:
         if not model_unavailable(error):
             raise

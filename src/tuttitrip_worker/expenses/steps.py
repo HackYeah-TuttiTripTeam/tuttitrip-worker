@@ -12,6 +12,7 @@ from uuid import UUID
 from dbos import DBOS
 from sqlalchemy import Select, select
 
+from tuttitrip_worker.contracts import ContractError
 from tuttitrip_worker.expenses.agents import read_receipt_image
 from tuttitrip_worker.expenses.schemas import ReceiptReading
 from tuttitrip_worker.shared.db.engine import transaction
@@ -50,7 +51,19 @@ def build_trip_dates_select(
     return select(trips.c.start_date, trips.c.end_date).where(trips.c.id == trip_id)
 
 
-@DBOS.step(retries_allowed=True, max_attempts=2)
+def _not_a_verdict(error: BaseException) -> bool:
+    """Retry anything except a ``ContractError`` (the model's verdict stands).
+
+    Args:
+        error: Exception raised by the step.
+
+    Returns:
+        ``False`` for a ``ContractError``.
+    """
+    return not isinstance(error, ContractError)
+
+
+@DBOS.step(retries_allowed=True, max_attempts=2, should_retry=_not_a_verdict)
 async def read_evidence(evidence_id: str, trip_id: str) -> dict[str, Any] | None:
     """Load the image and let the vision model read it; return the reading only.
 
@@ -60,6 +73,10 @@ async def read_evidence(evidence_id: str, trip_id: str) -> dict[str, Any] | None
 
     Returns:
         A ``ReceiptReading`` as JSON, or ``None`` when no such image exists.
+
+    Raises:
+        ContractError: The local vision model is down or answered nothing
+            valid; it is not retried.
     """
     statement = build_evidence_select(UUID(evidence_id), UUID(trip_id))
     async with transaction() as connection:

@@ -241,6 +241,31 @@ the matching step (#24). Real-model check: `scripts/smoke_parse_plan.py`.
 \[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
 
+## Expenses
+
+`parse_expense_text` and `read_receipt` (`expenses/`). Prices are never
+guessed: the amount must be written in the text as a whole number token
+(`logic/amounts.py`; `120` is not accepted for `120,50 zł`), a sentence with
+two priced amounts is refused as ambiguous, and a currency or name the text
+does not contain is dropped. Output `confidence` of `parse_expense_text` is
+always `None`: the chat model reports none and the check is binary. For
+`read_receipt`, `needs_confirmation` has reasons (`items_sum_mismatch`,
+`date_outside_trip`, `low_confidence`...); the decision model's confidence is
+the lowest margin of its two answers, and none counts as low.
+
+The image goes only to `tuttitrip:vision` (the GB10, no `FallbackModel`, no
+OpenRouter link). A GB10 outage ends the job with `model_output_invalid` and
+the message "the local model is unavailable ... enter the expense by hand";
+`ContractError` is not retried. The image is read and sent inside one step, so
+its bytes are never a step input or output (a test searches the DBOS system
+tables for them, raw and base64).
+
+DBOS keeps workflow inputs and step outputs, and `DBOSDurability` stores the
+model requests and responses of the text agents, in the system database. So
+the typed expense sentence and the OCR text of a receipt (not the image) stay
+there until the workflow history is deleted; set a retention for DBOS history
+before real user data goes through it.
+
 ## Demo reset
 
 `reset_demo_account` (schedule, 04:00 `Europe/Warsaw`, `SCHEDULE_TIMEZONE`)
