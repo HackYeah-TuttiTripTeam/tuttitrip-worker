@@ -109,6 +109,29 @@ class OsmSettings(BaseModel):
     overpass_daily_limit: int = Field(default=50, ge=1, le=100)
 
 
+class BenchSettings(BaseModel):
+    """Manual LLM benchmark (``python -m tuttitrip_worker.bench``; never in CI)."""
+
+    # The judge that scores answers against the reference. With an Anthropic key
+    # it is called on Anthropic's OpenAI-compatible endpoint; without one, on
+    # OpenRouter (`anthropic/claude-sonnet-5.5`). Empty key = the standard
+    # ANTHROPIC_API_KEY.
+    judge_model: str = "claude-sonnet-5-5"
+    anthropic_base_url: str = "https://api.anthropic.com/v1/"
+    anthropic_api_key: SecretStr = SecretStr("")
+    concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=16,
+        description="Parallel calls per model (the GB10 serves two at a time).",
+    )
+    request_timeout_seconds: float = Field(
+        default=180.0,
+        gt=0,
+        description="Longest wait for one example, retries included.",
+    )
+
+
 class Settings(BaseSettings):
     """Root settings object for the worker."""
 
@@ -146,6 +169,7 @@ class Settings(BaseSettings):
     llm: LlmSettings = Field(default_factory=LlmSettings)
     demo: DemoSettings = Field(default_factory=DemoSettings)
     osm: OsmSettings = Field(default_factory=OsmSettings)
+    bench: BenchSettings = Field(default_factory=BenchSettings)
 
     def system_database_url(self) -> str:
         """DBOS system database URL (defaults to the application database).
