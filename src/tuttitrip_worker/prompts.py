@@ -1,6 +1,10 @@
 """Framing of untrusted text for prompts (pure, shared by the domains)."""
 
 from hashlib import sha256
+from typing import Final
+
+TAG_DIGEST_CHARS: Final = 16
+"""Hex characters of the hash in the unique tag that fences untrusted text."""
 
 
 def data_tag(text: str, seed: str, prefix: str) -> str:
@@ -19,10 +23,10 @@ def data_tag(text: str, seed: str, prefix: str) -> str:
         A tag name such as ``expense_1a2b3c4d5e6f7a8b``.
     """
     digest = sha256(f"{seed}\n{text}".encode()).hexdigest()
-    tag = f"{prefix}_{digest[:16]}"
+    tag = f"{prefix}_{digest[:TAG_DIGEST_CHARS]}"
     while tag in text:  # astronomically unlikely, but then the text wins
         digest = sha256(digest.encode()).hexdigest()
-        tag = f"{prefix}_{digest[:16]}"
+        tag = f"{prefix}_{digest[:TAG_DIGEST_CHARS]}"
     return tag
 
 

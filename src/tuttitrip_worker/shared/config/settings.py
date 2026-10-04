@@ -16,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "TUTTITRIP_"
 ENV_NESTED_DELIMITER = "__"
+LOCAL_ENVIRONMENT = "local"
 LOCAL_DATABASE_URL = "postgresql://tuttitrip:tuttitrip@localhost:5432/tuttitrip"
 
 
@@ -26,6 +27,17 @@ class DbosSettings(BaseModel):
     # below the container stop timeout (the deploy uses --stop-timeout 40).
     shutdown_timeout_sec: int = Field(default=30, ge=0, le=600)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    step_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        description="Attempts of a database or HTTP step before its workflow fails.",
+    )
+    embed_max_attempts: int = Field(
+        default=4, ge=1, description="Attempts of the embedding model call."
+    )
+    embed_retry_interval_seconds: float = Field(
+        default=2.0, gt=0, description="Pause between attempts of the embedding call."
+    )
 
 
 class LlmSettings(BaseModel):
@@ -68,6 +80,12 @@ class DemoSettings(BaseModel):
     reset_secret: SecretStr = SecretStr("")
     # Empty = the environment's API container (`tuttitrip-api[-<env>]:8000`).
     api_base_url: str = ""
+    reset_max_attempts: int = Field(
+        default=3, ge=1, description="Attempts of the daily reset call to the backend."
+    )
+    reset_retry_interval_seconds: float = Field(
+        default=60.0, gt=0, description="Pause between attempts of the reset call."
+    )
 
 
 class OsmSettings(BaseModel):
@@ -102,7 +120,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    environment: str = "local"
+    environment: str = LOCAL_ENVIRONMENT
     # Application database as the restricted role `tuttitrip_worker` (on the
     # host); locally the owner role of the backend's compose database.
     worker_database_url: SecretStr = SecretStr(LOCAL_DATABASE_URL)
@@ -115,6 +133,14 @@ class Settings(BaseSettings):
     # value (`app_version`), so its jobs always match a running worker.
     application_version: str = Field(
         default="local", validation_alias="DBOS__APPVERSION"
+    )
+    db_pool_size: int = Field(
+        default=5,
+        ge=1,
+        description="Connections kept open to the database.",
+    )
+    db_max_overflow: int = Field(
+        default=5, ge=0, description="Extra connections allowed above the pool size."
     )
     dbos: DbosSettings = Field(default_factory=DbosSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)

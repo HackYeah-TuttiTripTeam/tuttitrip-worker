@@ -7,12 +7,17 @@ from dbos import DBOS
 from sqlalchemy.dialects.postgresql import Insert, insert
 
 from tuttitrip_worker.embeddings.schemas import EmbeddingBatch, EmbeddingRow
+from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.db.engine import transaction
 from tuttitrip_worker.shared.db.tables import embeddings
 from tuttitrip_worker.shared.llm.embeddings import embedder
 
 
-@DBOS.step(retries_allowed=True, max_attempts=4, interval_seconds=2.0)
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=get_settings().dbos.embed_max_attempts,
+    interval_seconds=get_settings().dbos.embed_retry_interval_seconds,
+)
 async def embed(texts: list[str]) -> dict[str, Any]:
     """Call the embedding model (retried on failure).
 
@@ -42,7 +47,7 @@ def build_upsert(values: Sequence[dict[str, Any]]) -> Insert:
     )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def upsert_embeddings(rows: Sequence[dict[str, Any]]) -> int:
     """Insert or refresh rows by their deterministic id.
 
