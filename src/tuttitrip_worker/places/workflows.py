@@ -15,11 +15,11 @@ from tuttitrip_worker.contracts import (
 from tuttitrip_worker.places import steps
 from tuttitrip_worker.places.logic.slug import slugify
 from tuttitrip_worker.places.schemas import GeocodedCity, RefreshState
-from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.dbos.runtime import PORTABLE, report_progress
 
 PAUSE_BETWEEN_QUERIES_SEC = 1
-"""Nominatim allows one request a second; the pause also spaces Overpass calls."""
+"""Durable pause between the geocoding and the Overpass query. The spacing
+across workflows is enforced by the gate in ``steps``."""
 
 
 @DBOS.workflow(name=Workflow.FETCH_PLACE_CANDIDATES.value, serialization_type=PORTABLE)
@@ -51,14 +51,10 @@ async def fetch_place_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         return FetchPlaceCandidatesOutput(
             city_slug=slug, refreshed=False, stored=0
         ).model_dump(mode="json")
-    if state.queries_last_day >= get_settings().osm.overpass_daily_limit:
-        raise contract_failure(
-            ErrorCode.RATE_LIMITED, "daily Overpass budget spent, try tomorrow"
-        )
 
     await report_progress("locating", 10)
     relation_id, timezone = state.relation_id, state.timezone
-    if relation_id is None or timezone is None:
+    if request.city_query is not None or relation_id is None or timezone is None:
         query = request.city_query or state.city_name
         if query is None:
             raise contract_failure(
@@ -71,10 +67,20 @@ async def fetch_place_candidates(payload: dict[str, Any]) -> dict[str, Any]:
                 ErrorCode.CITY_NOT_FOUND, f"OpenStreetMap does not know {query!r}"
             )
         city = GeocodedCity.model_validate(found)
+        if relation_id is not None and relation_id != city.relation_id:
+            raise contract_failure(
+                ErrorCode.SLUG_CONFLICT,
+                f"{slug} is already OpenStreetMap relation {relation_id}, "
+                f"{query!r} is {city.relation_id}; add the country to the name",
+            )
         await steps.store_city(slug, found)
         relation_id, timezone = city.relation_id, state.timezone or city.timezone
         await DBOS.sleep_async(PAUSE_BETWEEN_QUERIES_SEC)
 
+    if not await steps.reserve_overpass_slot(DBOS.workflow_id or slug, slug):
+        raise contract_failure(
+            ErrorCode.RATE_LIMITED, "daily Overpass budget spent, try tomorrow"
+        )
     await report_progress("fetching", 40)
     stored = await steps.import_places(slug, relation_id, timezone)
     await steps.mark_fetched(slug, relation_id, stored)

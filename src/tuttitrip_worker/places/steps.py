@@ -2,17 +2,22 @@
 
 Usage policies, kept here (see ``OsmSettings``):
 
-* Overpass: at most one query at a time per process (``_gate``), a 30 s pause
-  before every retry (``RETRY_PAUSE_SEC``, the DBOS retry interval), at most
-  ``overpass_daily_limit`` queries a day, a ``User-Agent`` that names TuttiTrip.
-* Nominatim: one request per workflow, the workflow pauses 1 s around it; the
-  answer is cached for good as the ``cities`` row and the refresh marker.
+* One OSM request at a time per process (``_gate``), and the gate is held for
+  1 s after every request (``REQUEST_SPACING_SEC``), so Nominatim's 1 request
+  a second holds across workflows. A ``User-Agent`` names TuttiTrip.
+* Overpass: a pause of at least 30 s before every retry (``RETRY_PAUSE_SEC``,
+  the DBOS retry interval; a longer ``Retry-After`` is waited out too). Each
+  workflow reserves a slot (``reserve_overpass_slot``) before its first
+  Overpass call; at most ``overpass_daily_limit`` reservations a day, failed
+  attempts included.
+* The Nominatim answer is cached as the ``cities`` row and the refresh marker.
 
 Every step is idempotent: the city insert does nothing on conflict, places are
 upserted by (``osm_type``, ``osm_id``) and never overwrite sheet rows.
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
@@ -22,7 +27,7 @@ from sqlalchemy import DateTime, Select, case, cast, func, select
 from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.engine import RowMapping
 
-from tuttitrip_worker.contracts import Workflow
+from tuttitrip_worker.contracts import CONTRACT_VERSION, Workflow
 from tuttitrip_worker.places.logic.city import parse_city
 from tuttitrip_worker.places.logic.hours import monday_of
 from tuttitrip_worker.places.logic.mapping import to_place_row
@@ -38,9 +43,18 @@ RETRY_PAUSE_SEC: Final = 30.0
 MAX_ATTEMPTS: Final = 4
 HTTP_TIMEOUT_SEC: Final = 120.0
 BATCH_SIZE: Final = 500
+# ponytail: markers and attempts live in job_results until the backend has a
+# city_fetches table, see HackYeah-TuttiTripTeam/tuttitrip-backend#159.
 MARKER_PREFIX: Final = "osm-fetch:"
 """``job_results.workflow_id`` prefix of the per-city refresh marker."""
+ATTEMPT_PREFIX: Final = "osm-attempt:"
+"""Prefix of the per-workflow reservation rows (the daily quota)."""
+LOCK_KEY: Final = 0x0054_7574_5472_6970
+"""Key of the advisory lock that serializes reservations."""
 SERVER_ERRORS: Final = 500
+REQUEST_SPACING_SEC: Final = 1.0
+"""The gate stays closed this long after every request (Nominatim: 1 a second)."""
+MAX_RETRY_AFTER_SEC: Final = 300.0
 
 _gate = asyncio.Lock()
 """One OSM request at a time in this process (no parallel queries)."""
@@ -48,6 +62,10 @@ _gate = asyncio.Lock()
 
 class OsmBusyError(RuntimeError):
     """Nominatim or Overpass asked us to slow down (429, 5xx, query timed out)."""
+
+
+_sleep = asyncio.sleep
+"""Indirection so tests do not really wait."""
 
 
 def _is_transient(error: BaseException) -> bool:
@@ -66,7 +84,38 @@ def build_client() -> httpx.AsyncClient:
     )
 
 
-def _check(response: httpx.Response) -> None:
+def _retry_after(response: httpx.Response) -> float:
+    try:
+        return min(float(response.headers.get("Retry-After", 0)), MAX_RETRY_AFTER_SEC)
+    except ValueError:  # an HTTP date: the default pause is enough
+        return 0.0
+
+
+async def _send(
+    send: Callable[[httpx.AsyncClient], Awaitable[httpx.Response]],
+) -> httpx.Response:
+    """Send one request through the gate, then keep the gate closed for a second.
+
+    On 429 the rest of ``Retry-After`` beyond the DBOS retry pause is waited out
+    here, still holding the gate, so the retry comes after ``max(30 s, Retry-After)``.
+
+    Args:
+        send: Makes the request with the given client.
+
+    Returns:
+        A successful response.
+
+    Raises:
+        OsmBusyError: On 429, a 5xx answer or a timed out query.
+    """
+    async with _gate:
+        try:
+            async with build_client() as client:
+                response = await send(client)
+            if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+                await _sleep(max(0.0, _retry_after(response) - RETRY_PAUSE_SEC))
+        finally:
+            await _sleep(REQUEST_SPACING_SEC)
     if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
         msg = f"{response.url.host} answered 429"
         raise OsmBusyError(msg)
@@ -74,6 +123,7 @@ def _check(response: httpx.Response) -> None:
         msg = f"{response.url.host} answered {response.status_code}"
         raise OsmBusyError(msg)
     response.raise_for_status()
+    return response
 
 
 def marker_id(slug: str) -> str:
@@ -119,8 +169,8 @@ def build_marker_select(slug: str) -> Select[dict[str, Any]]:
     )
 
 
-def build_recent_queries_select(since: datetime) -> Select[int]:
-    """Count the Overpass queries (markers written) since a moment.
+def build_recent_attempts_select(since: datetime) -> Select[int]:
+    """Count the reservations (attempts, failed ones too) since a moment.
 
     Args:
         since: Start of the window.
@@ -128,11 +178,48 @@ def build_recent_queries_select(since: datetime) -> Select[int]:
     Returns:
         The statement (not executed).
     """
-    fetched_at = cast(
-        job_results.c.result["fetched_at"].astext, DateTime(timezone=True)
+    reserved_at = cast(
+        job_results.c.result["reserved_at"].astext, DateTime(timezone=True)
     )
     return select(func.count()).where(
-        job_results.c.workflow_id.like(f"{MARKER_PREFIX}%"), fetched_at > since
+        job_results.c.workflow_id.like(f"{ATTEMPT_PREFIX}%"), reserved_at > since
+    )
+
+
+def build_attempt_select(workflow_id: str) -> Select[int]:
+    """Count the reservation rows of one workflow (0 or 1).
+
+    Args:
+        workflow_id: DBOS id of the workflow.
+
+    Returns:
+        The statement (not executed).
+    """
+    return select(func.count()).where(
+        job_results.c.workflow_id == f"{ATTEMPT_PREFIX}{workflow_id}"
+    )
+
+
+def build_attempt_insert(workflow_id: str, slug: str, now: datetime) -> Insert:
+    """Insert the reservation row of a workflow; a repeat changes nothing.
+
+    Args:
+        workflow_id: DBOS id of the workflow.
+        slug: City slug, for the record.
+        now: Moment of the reservation.
+
+    Returns:
+        The statement (not executed).
+    """
+    return (
+        insert(job_results)
+        .values(
+            workflow_id=f"{ATTEMPT_PREFIX}{workflow_id}",
+            workflow_name=Workflow.FETCH_PLACE_CANDIDATES.value,
+            contract_version=CONTRACT_VERSION,
+            result={"slug": slug, "reserved_at": now.isoformat()},
+        )
+        .on_conflict_do_nothing(index_elements=[job_results.c.workflow_id])
     )
 
 
@@ -221,7 +308,7 @@ def _marker_relation(result: RowMapping | None) -> tuple[int | None, datetime | 
 
 @DBOS.step(retries_allowed=True, max_attempts=3)
 async def load_refresh_state(slug: str) -> dict[str, Any]:
-    """Read what the catalog knows about a city and how much quota is left.
+    """Read what the catalog knows about a city.
 
     Args:
         slug: City slug.
@@ -236,11 +323,6 @@ async def load_refresh_state(slug: str) -> dict[str, Any]:
         marker = (
             (await connection.execute(build_marker_select(slug))).mappings().first()
         )
-        recent = (
-            await connection.execute(
-                build_recent_queries_select(now - timedelta(days=1))
-            )
-        ).scalar_one()
     relation_id, fetched_at = _marker_relation(marker)
     fresh = fetched_at is not None and now - fetched_at < timedelta(
         days=settings.refresh_days
@@ -251,8 +333,40 @@ async def load_refresh_state(slug: str) -> dict[str, Any]:
         timezone=city["timezone"] if city else None,
         relation_id=relation_id,
         fresh=fresh,
-        queries_last_day=int(recent),
     ).model_dump(mode="json")
+
+
+@DBOS.step(retries_allowed=True, max_attempts=3)
+async def reserve_overpass_slot(workflow_id: str, slug: str) -> bool:
+    """Reserve one of today's Overpass queries for this workflow.
+
+    One transaction under an advisory lock: count the reservations of the last
+    24 hours (failed attempts included), compare with the limit and insert this
+    workflow's row. A repeated call of the same workflow (recovery) finds its
+    own row and reserves nothing more.
+
+    Args:
+        workflow_id: DBOS id of the workflow (one reservation per workflow).
+        slug: City slug, for the record.
+
+    Returns:
+        ``False`` when the daily budget is spent.
+    """
+    now = datetime.now(UTC)
+    async with transaction() as connection:
+        await connection.execute(select(func.pg_advisory_xact_lock(LOCK_KEY)))
+        own = (await connection.execute(build_attempt_select(workflow_id))).scalar_one()
+        if own:
+            return True
+        used = (
+            await connection.execute(
+                build_recent_attempts_select(now - timedelta(days=1))
+            )
+        ).scalar_one()
+        if used >= get_settings().osm.overpass_daily_limit:
+            return False
+        await connection.execute(build_attempt_insert(workflow_id, slug, now))
+    return True
 
 
 @DBOS.step(
@@ -280,11 +394,8 @@ async def geocode_city(query: str, country: str | None) -> dict[str, Any] | None
     }
     if country:
         params["countrycodes"] = country.lower()
-    async with _gate, build_client() as client:
-        response = await client.get(
-            f"{get_settings().osm.nominatim_url}/search", params=params
-        )
-    _check(response)
+    url = f"{get_settings().osm.nominatim_url}/search"
+    response = await _send(lambda client: client.get(url, params=params))
     city = parse_city(response.json())
     return None if city is None else city.model_dump(mode="json")
 
@@ -321,17 +432,19 @@ async def import_places(slug: str, relation_id: int, timezone: str) -> int:
     Returns:
         How many places were written.
     """
-    async with _gate, build_client() as client:
-        response = await client.post(
-            get_settings().osm.overpass_url, data={"data": overpass_query(relation_id)}
-        )
-    _check(response)
+    url = get_settings().osm.overpass_url
+    data = {"data": overpass_query(relation_id)}
+    response = await _send(lambda client: client.post(url, data=data))
     body = response.json()
     remark = str(body.get("remark", ""))
     if "runtime error" in remark:
         raise OsmBusyError(remark)
+    elements = body.get("elements")
+    if not isinstance(elements, list):
+        msg = "Overpass answered without an elements list"
+        raise TypeError(msg)
     week = monday_of(datetime.now(UTC), timezone)
-    mapped = (to_place_row(element, timezone, week) for element in body["elements"])
+    mapped = (to_place_row(element, timezone, week) for element in elements)
     unique = {(row.osm_type, row.osm_id): row for row in mapped if row is not None}
     rows = list(unique.values())
     async with transaction() as connection:

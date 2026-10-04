@@ -25,13 +25,17 @@ from tuttitrip_worker.contracts import (
     Workflow,
 )
 from tuttitrip_worker.places import steps, workflows
-from tuttitrip_worker.places.logic.city import parse_city
+from tuttitrip_worker.places.logic.city import (
+    EURO_COUNTRIES,
+    OTHER_CURRENCIES,
+    parse_city,
+)
 from tuttitrip_worker.places.logic.hours import monday_of, weekly_hours
 from tuttitrip_worker.places.logic.mapping import to_place_row
 from tuttitrip_worker.places.logic.slug import slugify
 from tuttitrip_worker.places.logic.taxonomy import RULES, classify, overpass_query
 from tuttitrip_worker.places.schemas import GeocodedCity, PlaceRow, RefreshState
-from tuttitrip_worker.shared.config.settings import Settings
+from tuttitrip_worker.shared.config.settings import Settings, get_settings
 from tuttitrip_worker.shared.db.tables import places
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "osm"
@@ -281,13 +285,14 @@ def test_an_existing_city_is_never_overwritten() -> None:
     assert "relation_id" not in text
 
 
-def test_state_queries_read_city_marker_and_quota() -> None:
+def test_state_queries_read_city_marker_and_attempts() -> None:
     assert "FROM cities" in sql(steps.build_city_select("sopot"))
     marker = sql(steps.build_marker_select("sopot"))
     assert "job_results.workflow_id" in marker
-    recent = sql(steps.build_recent_queries_select(datetime.now(UTC)))
+    recent = sql(steps.build_recent_attempts_select(datetime.now(UTC)))
     assert "count(*)" in recent
     assert "job_results.result ->>" in recent
+    assert "LIKE" in recent
 
 
 # --- the steps over a fake network ---------------------------------------------------
@@ -298,6 +303,7 @@ class Net:
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
+        self.sleeps: list[float] = []
         self.overpass_answers: list[httpx.Response] = []
         self.nominatim: list[dict[str, Any]] = NOMINATIM
 
@@ -320,6 +326,8 @@ class Db:
         self.executed: list[ClauseElement] = []
         self.cities: list[tuple[str, dict[str, Any]]] = []
         self.markers: list[tuple[str, int, int]] = []
+        self.reservations: list[str] = []
+        self.budget_left = True
 
 
 class FakeConnection:
@@ -333,6 +341,11 @@ class FakeConnection:
 @pytest.fixture
 def net(monkeypatch: pytest.MonkeyPatch) -> Net:
     fake = Net()
+
+    async def record_sleep(seconds: float) -> None:
+        fake.sleeps.append(seconds)
+
+    monkeypatch.setattr(steps, "_sleep", record_sleep)
     monkeypatch.setattr(
         steps.httpx,
         "AsyncClient",
@@ -355,6 +368,12 @@ def db(monkeypatch: pytest.MonkeyPatch) -> Db:
     async def fake_mark(slug: str, relation_id: int, stored: int) -> None:
         fake.markers.append((slug, relation_id, stored))
 
+    async def fake_reserve(workflow_id: str, slug: str) -> bool:
+        del slug
+        fake.reservations.append(workflow_id)
+        return fake.budget_left
+
+    monkeypatch.setattr(steps, "reserve_overpass_slot", fake_reserve)
     monkeypatch.setattr(steps, "transaction", fake_transaction)
     monkeypatch.setattr(steps, "store_city", fake_store_city)
     monkeypatch.setattr(steps, "mark_fetched", fake_mark)
@@ -520,7 +539,7 @@ def test_429_makes_the_step_wait_at_least_30_seconds_and_retry(
 
     assert output.stored > 0
     assert len(net.to("overpass-api.de")) == 3  # 429, 504, then the answer
-    retry_pauses = [p for p in pauses if p >= 1]
+    retry_pauses = [p for p in pauses if p >= 30]
     assert retry_pauses[:2] == [30.0, 60.0]  # at least 30 s, then backing off
 
 
@@ -544,7 +563,89 @@ def test_overpass_never_runs_two_queries_at_once() -> None:
 
 def test_the_pauses_follow_the_policies() -> None:
     assert steps.RETRY_PAUSE_SEC >= 30
-    assert workflows.PAUSE_BETWEEN_QUERIES_SEC >= 1  # Nominatim: 1 request a second
+    assert steps.REQUEST_SPACING_SEC >= 1  # Nominatim: 1 request a second
+    assert workflows.PAUSE_BETWEEN_QUERIES_SEC >= 1
+
+
+def test_the_gate_stays_closed_for_a_second_after_every_request(
+    client: DBOSClient,
+    dbos: Settings,
+    net: Net,
+    db: Db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(steps, "load_refresh_state", known(RefreshState()))
+    run(client, dbos, {"city_query": "Sopot"})
+    del db
+    assert len(net.requests) == 2  # Nominatim, then Overpass
+    assert net.sleeps == [1.0, 1.0]  # one second inside the gate after each
+
+
+def test_retry_after_longer_than_30_s_is_waited_out(
+    client: DBOSClient,
+    dbos: Settings,
+    net: Net,
+    db: Db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(steps, "load_refresh_state", known(RefreshState()))
+    net.overpass_answers = [httpx.Response(429, headers={"Retry-After": "120"})]
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(seconds: float) -> None:
+        del seconds
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", fast_sleep)
+    run(client, dbos, {"city_query": "Sopot"})
+    del db
+    # 90 s here (still holding the gate) plus the 30 s DBOS retry pause.
+    assert 90.0 in net.sleeps
+
+
+def test_an_answer_without_elements_is_a_clear_error(
+    client: DBOSClient,
+    dbos: Settings,
+    net: Net,
+    db: Db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(steps, "load_refresh_state", known(RefreshState()))
+    net.overpass_answers = [httpx.Response(200, json={"version": 0.6})]
+    error = fail(client, dbos, {"city_query": "Sopot"})
+    del db
+    assert "elements" in str(error)
+
+
+def test_the_same_slug_for_another_osm_city_is_a_conflict(
+    client: DBOSClient,
+    dbos: Settings,
+    net: Net,
+    db: Db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stored = RefreshState(relation_id=42, timezone="Europe/London")
+    monkeypatch.setattr(steps, "load_refresh_state", known(stored))
+
+    error = fail(client, dbos, {"city_query": "Sopot"})
+
+    assert error.code == ErrorCode.SLUG_CONFLICT.value
+    assert net.to("overpass-api.de") == []
+    assert db.reservations == []
+    assert db.cities == []
+
+
+def test_the_same_city_again_after_the_refresh_period_is_fine(
+    client: DBOSClient,
+    dbos: Settings,
+    net: Net,
+    db: Db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stored = RefreshState(relation_id=SOPOT, timezone="Europe/Warsaw")
+    monkeypatch.setattr(steps, "load_refresh_state", known(stored))
+    assert run(client, dbos, {"city_query": "Sopot"}).refreshed is True
+    del net, db
 
 
 def test_a_runtime_error_remark_is_retried(
@@ -607,14 +708,77 @@ def test_a_spent_daily_budget_stops_before_any_request(
     db: Db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state = RefreshState(queries_last_day=dbos.osm.overpass_daily_limit)
-    monkeypatch.setattr(steps, "load_refresh_state", known(state))
+    monkeypatch.setattr(steps, "load_refresh_state", known(RefreshState()))
+    db.budget_left = False
 
     error = fail(client, dbos, {"city_query": "Sopot"})
 
     assert error.code == ErrorCode.RATE_LIMITED.value
-    assert net.requests == []
-    del db
+    assert net.to("overpass-api.de") == []  # reserved before any Overpass call
+    assert len(db.reservations) == 1
+
+
+class Ledger:
+    """In-memory stand-in for the reservation rows in job_results."""
+
+    def __init__(self) -> None:
+        self.rows: list[str] = []
+        self.locked = False
+
+
+class LedgerConnection:
+    def __init__(self, ledger: Ledger) -> None:
+        self.ledger = ledger
+
+    async def execute(self, statement: ClauseElement) -> LedgerResult:
+        text = sql(statement)
+        if "pg_advisory_xact_lock" in text:
+            self.ledger.locked = True
+            return LedgerResult(0)
+        assert self.ledger.locked, "the lock comes before reading or writing"
+        if text.startswith("INSERT"):
+            compiled = statement.compile(dialect=postgresql.dialect())
+            self.ledger.rows.append(str(compiled.params["workflow_id"]))
+            return LedgerResult(0)
+        if "job_results.workflow_id =" in text:  # this workflow's own row
+            params = statement.compile(dialect=postgresql.dialect()).params
+            return LedgerResult(self.ledger.rows.count(params["workflow_id_1"]))
+        return LedgerResult(len(self.ledger.rows))  # the last 24 hours
+
+
+class LedgerResult:
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def scalar_one(self) -> int:
+        return self.value
+
+
+def test_failed_attempts_count_and_a_recovered_workflow_reserves_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = Ledger()
+
+    @asynccontextmanager
+    async def fake_transaction() -> AsyncGenerator[LedgerConnection]:
+        ledger.locked = False
+        yield LedgerConnection(ledger)
+
+    monkeypatch.setattr(steps, "transaction", fake_transaction)
+    monkeypatch.setenv("TUTTITRIP_OSM__OVERPASS_DAILY_LIMIT", "2")
+    get_settings.cache_clear()
+
+    async def scenario() -> list[bool]:
+        # wf-a reserves and then fails (nothing is marked fetched): it still counts.
+        return [
+            await steps.reserve_overpass_slot("wf-a", "sopot"),
+            await steps.reserve_overpass_slot("wf-b", "gdansk"),
+            await steps.reserve_overpass_slot("wf-c", "lodz"),  # over the limit
+            await steps.reserve_overpass_slot("wf-a", "sopot"),  # recovery
+        ]
+
+    assert asyncio.run(scenario()) == [True, True, False, True]
+    assert ledger.rows == ["osm-attempt:wf-a", "osm-attempt:wf-b"]  # no 3rd, no repeat
 
 
 def test_an_unknown_city_is_reported(
@@ -646,6 +810,12 @@ def test_a_slug_nobody_fetched_needs_a_query(
     assert error.code == ErrorCode.CITY_NOT_FOUND.value
     assert net.requests == []
     del db
+
+
+def test_currencies_come_from_a_static_table() -> None:
+    assert "DE" in EURO_COUNTRIES
+    assert OTHER_CURRENCIES["PL"] == "PLN"
+    assert not EURO_COUNTRIES & OTHER_CURRENCIES.keys()
 
 
 def test_geocoded_city_round_trips_through_json() -> None:

@@ -74,8 +74,10 @@ class OsmSettings(BaseModel):
     """Open-data services behind ``fetch_place_candidates`` (their usage policies).
 
     Overpass: below 10 000 queries a day per instance, so an application uses
-    about a hundredth of that (``overpass_daily_limit``), never in parallel,
-    and pauses 30 s after a 429. Nominatim: at most one request a second.
+    about a hundredth of that, never in parallel, and pauses 30 s after a 429.
+    ``overpass_daily_limit`` is counted per environment database; develop and
+    main share one IP, so each gets 50 (together the 100 a day). Nominatim: at
+    most one request a second.
     """
 
     nominatim_url: str = "https://nominatim.openstreetmap.org"
@@ -86,7 +88,7 @@ class OsmSettings(BaseModel):
     )
     # A city is fetched again at most once per this many days.
     refresh_days: int = Field(default=30, ge=1, le=365)
-    overpass_daily_limit: int = Field(default=100, ge=1, le=100)
+    overpass_daily_limit: int = Field(default=50, ge=1, le=100)
 
 
 class Settings(BaseSettings):

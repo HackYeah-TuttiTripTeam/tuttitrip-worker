@@ -26,7 +26,8 @@ produced a valid structured answer, for example ``parse_pasted_plan`` after the
 last retry; the backend maps it like the others), ``ErrorCode.CITY_NOT_FOUND``
 (``fetch_place_candidates`` cannot find the city in Nominatim, or ``city_slug``
 names a city nobody has fetched yet) and ``ErrorCode.RATE_LIMITED`` (the daily
-budget of Overpass queries is spent; try again tomorrow).
+budget of Overpass queries is spent; try again tomorrow) and
+``ErrorCode.SLUG_CONFLICT`` (the slug already belongs to another OSM city).
 
 This module is pure: it imports only the standard library and Pydantic
 (enforced by ``tests/architecture``).
@@ -107,6 +108,7 @@ class ErrorCode(StrEnum):
     MODEL_OUTPUT_INVALID = "model_output_invalid"
     CITY_NOT_FOUND = "city_not_found"
     RATE_LIMITED = "rate_limited"
+    SLUG_CONFLICT = "slug_conflict"
 
 
 class ContractPayload(BaseModel):

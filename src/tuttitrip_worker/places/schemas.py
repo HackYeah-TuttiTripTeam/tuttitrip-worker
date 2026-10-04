@@ -40,8 +40,6 @@ class RefreshState(BaseModel):
     """OSM relation of the city from the last fetch (saves a Nominatim call)."""
     fresh: bool = False
     """Fetched less than ``refresh_days`` ago: nothing to do."""
-    queries_last_day: int = 0
-    """Overpass queries this application sent in the last 24 hours."""
 
 
 class PlaceRow(BaseModel):

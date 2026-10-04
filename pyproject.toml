@@ -8,7 +8,6 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "babel>=2.18.0",
     "dbos>=3.2.0",
     "httpx>=0.28.1",
     "opening-hours-py>=2.1.4",
