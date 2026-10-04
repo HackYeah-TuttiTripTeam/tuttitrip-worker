@@ -69,6 +69,7 @@ def test_ids_are_the_ones_of_the_backend_catalog() -> None:
     assert [model_id(key) for key in ModelKey] == [
         "tuttitrip:agent",
         "tuttitrip:chat",
+        "tuttitrip:vision",
         "tuttitrip:decide",
         "tuttitrip:decide-laya",
         "tuttitrip:decide-cloud",
@@ -173,3 +174,12 @@ def test_unfillable_route_escalates_to_the_language_model() -> None:
 
     chain = FallbackModel(FunctionModel(decision), FunctionModel(qwen))
     assert Agent(chain).run_sync("pytanie").output == "odpowiada Qwen"
+
+
+def test_vision_is_the_gb10_alone_and_never_falls_back_to_a_cloud() -> None:
+    model = build_model(ModelKey.VISION, KEYS)  # both keys are set
+    assert isinstance(model, OpenAIChatModel)
+    assert not isinstance(model, FallbackModel)
+    assert model.model_name == "qwen3.8-27b-chat"
+    with pytest.raises(UserError, match="GB10"):
+        build_model(ModelKey.VISION, LlmSettings(openrouter_api_key="k-or"))

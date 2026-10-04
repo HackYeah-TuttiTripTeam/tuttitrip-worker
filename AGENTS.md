@@ -224,6 +224,8 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | `generate_trip_plan` | `openrouter` (or `local_llm` for `provider=local`) | `{contract_version, trip_id, request, provider}` | `{contract_version, destination, days, highlights}` |
 | `embed_texts` | `default` | `{contract_version, source_kind, source_id, texts}` | `{contract_version, model, dimensions, stored}` |
 | `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` | `{contract_version, city_slug, source, refreshed, stored}` |
+| `parse_expense_text` | `local_llm` | `{contract_version, trip_id, text, locale}` | `{contract_version, amount_minor, currency, description, payer_name, included_names, excluded_names, confidence}` |
+| `read_receipt` | `local_llm` | `{contract_version, trip_id, evidence_id}` | `{contract_version, amount_minor, currency, spent_on, merchant, category, needs_confirmation, reasons}` |
 | `ping` | `default` | `{contract_version, message}` | `{contract_version, message, worker_app_version}` |
 | `parse_pasted_plan` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, city_slug, provider}` | `{contract_version, items, unread, matches}` |
 | `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence: [{requirement_key, quotes: [{text, verdict?, confidence?}]}]}`; `quotes == []` = silent offer, `verdict` null = judge unavailable |
@@ -239,6 +241,31 @@ in `unread`, stores the output in `job_results`. `matches` stays empty until
 the matching step (#24). Real-model check: `scripts/smoke_parse_plan.py`.
 \[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
+
+## Expenses
+
+`parse_expense_text` and `read_receipt` (`expenses/`). Prices are never
+guessed: the amount must be written in the text as a whole number token
+(`logic/amounts.py`; `120` is not accepted for `120,50 zł`), a sentence with
+two priced amounts is refused as ambiguous, and a currency or name the text
+does not contain is dropped. Output `confidence` of `parse_expense_text` is
+always `None`: the chat model reports none and the check is binary. For
+`read_receipt`, `needs_confirmation` has reasons (`items_sum_mismatch`,
+`date_outside_trip`, `low_confidence`...); the decision model's confidence is
+the lowest margin of its two answers, and none counts as low.
+
+The image goes only to `tuttitrip:vision` (the GB10, no `FallbackModel`, no
+OpenRouter link). A GB10 outage ends the job with `model_output_invalid` and
+the message "the local model is unavailable ... enter the expense by hand";
+`ContractError` is not retried. The image is read and sent inside one step, so
+its bytes are never a step input or output (a test searches the DBOS system
+tables for them, raw and base64).
+
+DBOS keeps workflow inputs and step outputs, and `DBOSDurability` stores the
+model requests and responses of the text agents, in the system database. So
+the typed expense sentence and the OCR text of a receipt (not the image) stay
+there until the workflow history is deleted; set a retention for DBOS history
+before real user data goes through it.
 
 ## Demo reset
 

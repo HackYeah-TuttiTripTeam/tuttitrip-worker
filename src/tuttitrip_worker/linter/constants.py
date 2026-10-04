@@ -11,8 +11,6 @@ PROGRESS_READING: Final = ("reading", 15)
 PROGRESS_SAVING: Final = ("saving", 90)
 """``progress`` event while the result is stored."""
 
-PROMPT_TAG_DIGEST_CHARS: Final = 16
-"""Hex characters of the hash in the unique tag that fences the pasted text."""
 
 LINE_BREAKS: Final = ("\n", "\r")
 """Characters that make a quote span more than one line."""
