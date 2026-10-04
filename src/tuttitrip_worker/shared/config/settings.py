@@ -109,6 +109,87 @@ class OsmSettings(BaseModel):
     overpass_daily_limit: int = Field(default=50, ge=1, le=100)
 
 
+class EnrichSettings(BaseModel):
+    """Web research that fills in the OSM places (``fetch_place_candidates``).
+
+    OSM has no prices and often no hours or visit time. A cheap OpenRouter model
+    with web search finds them; everything it returns carries a ``source_url``
+    that the search really cited and is stored unverified. Capabilities other
+    than web search are switches, off unless the model handles them well.
+    """
+
+    enabled: bool = Field(
+        default=True, description="Research places after the OSM import."
+    )
+    model: str = Field(
+        default="deepseek/deepseek-v4.1-flash",
+        description="OpenRouter slug of the research model (tools, JSON output).",
+    )
+    top_n: int = Field(
+        default=20, ge=1, le=200, description="Places researched per city."
+    )
+    categories: list[str] = Field(
+        default=["attraction", "museum", "entertainment", "park", "viewpoint"],
+        description="Place categories worth researching, in priority order.",
+    )
+    ttl_days: int = Field(
+        default=60,
+        ge=1,
+        le=730,
+        description="A researched place is not researched again for this long.",
+    )
+    max_cost_usd: float = Field(
+        default=1.5,
+        gt=0,
+        description="Stop researching a city once its calls cost this much.",
+    )
+    concurrency: int = Field(
+        default=4, ge=1, le=16, description="Places researched in parallel."
+    )
+    timeout_seconds: float = Field(
+        default=90.0, gt=0, description="Longest wait for one place."
+    )
+    max_searches: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Web searches the model may run for one place.",
+    )
+    search_context_size: Literal["low", "medium", "high"] = Field(
+        default="low",
+        description="How much of each search result the model reads (cost).",
+    )
+    request_limit: int = Field(
+        default=6,
+        ge=1,
+        description="Model requests (tool rounds included) for one place.",
+    )
+    web_fetch: bool = Field(
+        default=False,
+        description=(
+            "Let the model read pages. OpenRouter has no native fetch, so the worker "
+            "fetches them itself (SSRF-protected, https only)."
+        ),
+    )
+    max_fetches: int = Field(
+        default=2, ge=1, le=10, description="Page fetches per place."
+    )
+    fetch_blocked_domains: list[str] = Field(
+        default=["facebook.com", "instagram.com", "tripadvisor.com"],
+        description="Domains the page fetch refuses.",
+    )
+    thinking: Literal["", "minimal", "low", "medium", "high"] = Field(
+        default="",
+        description="Reasoning effort (minimal..high); empty leaves it off.",
+    )
+    planning: bool = Field(
+        default=False, description="Add the harness Planning capability."
+    )
+    compaction: bool = Field(
+        default=False, description="Add the harness SummarizingCompaction capability."
+    )
+
+
 class BenchSettings(BaseModel):
     """Manual LLM benchmark (``python -m tuttitrip_worker.bench``; never in CI)."""
 
@@ -191,6 +272,7 @@ class Settings(BaseSettings):
     planning: PlanningSettings = Field(default_factory=PlanningSettings)
     demo: DemoSettings = Field(default_factory=DemoSettings)
     osm: OsmSettings = Field(default_factory=OsmSettings)
+    enrich: EnrichSettings = Field(default_factory=EnrichSettings)
     bench: BenchSettings = Field(default_factory=BenchSettings)
 
     linter: LinterSettings = Field(default_factory=LinterSettings)

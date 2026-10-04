@@ -25,21 +25,30 @@ from typing import Any, Final
 
 import httpx
 from dbos import DBOS
-from sqlalchemy import Select, case, func, select
+from sqlalchemy import Select, Update, case, func, select, update
 from sqlalchemy.dialects.postgresql import Insert, insert
 
+from tuttitrip_worker.places import agents
 from tuttitrip_worker.places.constants import OVERPASS_BUSY_MARKER, SOURCE_OSM
 from tuttitrip_worker.places.logic.city import parse_city
+from tuttitrip_worker.places.logic.enrichment import clean
 from tuttitrip_worker.places.logic.hours import monday_of
 from tuttitrip_worker.places.logic.mapping import to_place_row
 from tuttitrip_worker.places.logic.taxonomy import overpass_query
-from tuttitrip_worker.places.schemas import GeocodedCity, PlaceRow, RefreshState
+from tuttitrip_worker.places.schemas import (
+    CleanFacts,
+    EnrichTarget,
+    GeocodedCity,
+    PlaceRow,
+    RefreshState,
+)
 from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.db.engine import transaction
 from tuttitrip_worker.shared.db.tables import (
     cities,
     city_fetch_attempts,
     city_fetches,
+    place_prices,
     places,
 )
 
@@ -460,3 +469,211 @@ async def mark_fetched(slug: str, relation_id: int, stored: int) -> None:
     statement = build_fetch_upsert(slug, relation_id, stored, datetime.now(UTC))
     async with transaction() as connection:
         await connection.execute(statement)
+
+
+# --- web research ----------------------------------------------------------------
+
+
+def build_targets_select(
+    slug: str, categories: list[str], limit: int
+) -> Select[Any, Any, Any, Any, Any, Any, Any, Any]:
+    """The first ``limit`` OSM places worth researching, in a fixed order.
+
+    The order is the priority of ``categories``, then name and id, so every
+    run picks the same places.
+
+    Args:
+        slug: City slug.
+        categories: Researched categories, most important first.
+        limit: How many places (``enrich.top_n``).
+
+    Returns:
+        The statement (not executed).
+    """
+    rank = case(
+        {name: index for index, name in enumerate(categories)}, value=places.c.category
+    )
+    return (
+        select(
+            places.c.id,
+            places.c.name,
+            places.c.category,
+            places.c.lat,
+            places.c.lon,
+            places.c.enriched_at,
+            cities.c.name.label("city"),
+            cities.c.country,
+        )
+        .join(cities, cities.c.slug == places.c.city_slug)
+        .where(
+            places.c.city_slug == slug,
+            places.c.source == SOURCE_OSM,
+            places.c.category.in_(categories),
+        )
+        .order_by(rank, places.c.name, places.c.id)
+        .limit(limit)
+    )
+
+
+def build_enrichment_update(place_id: str, facts: CleanFacts, now: datetime) -> Update:
+    """Write researched facts to a place without overwriting better data.
+
+    Existing opening hours (OSM or a person's) stay; only a missing value is
+    filled. The stamp ``enriched_at`` starts the cache period even when the
+    research found nothing.
+
+    Args:
+        place_id: Place id.
+        facts: Checked facts.
+        now: Moment of the research.
+
+    Returns:
+        The statement (not executed).
+    """
+    fill_hours = facts.opening_hours is not None
+    values: dict[str, Any] = {
+        "enriched_at": now,
+        "indoor": func.coalesce(places.c.indoor, facts.indoor),
+        "child_friendly": func.coalesce(facts.child_friendly, places.c.child_friendly),
+        "description": func.coalesce(facts.description, places.c.description),
+        "typical_visit_min": func.coalesce(facts.visit_min, places.c.typical_visit_min),
+    }
+    if fill_hours:
+        empty = places.c.opening_hours.is_(None)
+        values["hours_source_url"] = case(
+            (empty, facts.hours_source_url), else_=places.c.hours_source_url
+        )
+        values["hours_checked_at"] = case((empty, now), else_=places.c.hours_checked_at)
+        values["opening_hours"] = func.coalesce(
+            places.c.opening_hours, facts.opening_hours
+        )
+    return (
+        update(places)
+        .where(places.c.id == place_id, places.c.source == SOURCE_OSM)
+        .values(**values)
+    )
+
+
+def build_price_upsert(place_id: str, facts: CleanFacts, now: datetime) -> Insert:
+    """Upsert the unverified prices of a place by (place, ticket category).
+
+    A verified row is never touched.
+
+    Args:
+        place_id: Place id.
+        facts: Checked facts with at least one price.
+        now: Moment of the research.
+
+    Returns:
+        The statement (not executed).
+    """
+    statement = insert(place_prices).values(
+        [
+            {
+                "place_id": place_id,
+                "ticket_category": price.category,
+                "amount": price.amount,
+                "currency": price.currency,
+                "source_url": price.source_url,
+                "verified": False,
+                "checked_at": now,
+            }
+            for price in facts.prices
+        ]
+    )
+    excluded = statement.excluded
+    return statement.on_conflict_do_update(
+        index_elements=[place_prices.c.place_id, place_prices.c.ticket_category],
+        set_={
+            "amount": excluded.amount,
+            "currency": excluded.currency,
+            "source_url": excluded.source_url,
+            "checked_at": excluded.checked_at,
+        },
+        where=place_prices.c.verified.is_(False),
+    )
+
+
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
+async def select_research_targets(slug: str) -> list[dict[str, Any]]:
+    """Pick the places of a city that still need web research.
+
+    The top ``top_n`` places by priority; those researched less than
+    ``ttl_days`` ago are skipped, so a repeated run finds nothing to do.
+
+    Args:
+        slug: City slug.
+
+    Returns:
+        ``EnrichTarget`` objects as JSON.
+    """
+    settings = get_settings().enrich
+    if not settings.enabled:
+        return []
+    cutoff = datetime.now(UTC) - timedelta(days=settings.ttl_days)
+    statement = build_targets_select(slug, settings.categories, settings.top_n)
+    async with transaction() as connection:
+        rows = (await connection.execute(statement)).mappings().all()
+    return [
+        EnrichTarget(
+            place_id=str(row["id"]),
+            name=row["name"],
+            category=row["category"],
+            lat=row["lat"],
+            lon=row["lon"],
+            city=row["city"],
+            country=row["country"],
+        ).model_dump(mode="json")
+        for row in rows
+        if row["enriched_at"] is None or row["enriched_at"] < cutoff
+    ]
+
+
+@DBOS.step()
+async def research_place(target: dict[str, Any]) -> dict[str, Any]:
+    """Research one place on the web (one model run, paid; never retried).
+
+    Args:
+        target: An ``EnrichTarget`` as JSON.
+
+    Returns:
+        A ``ResearchResult`` as JSON whose facts passed the source checks;
+        ``facts`` is ``None`` when the run failed (the place is tried again later).
+    """
+    result = await agents.research(
+        EnrichTarget.model_validate(target), get_settings().enrich
+    )
+    checked = clean(result.facts, result.cited_urls) if result.facts else None
+    return {
+        "place_id": result.place_id,
+        "facts": checked.model_dump(mode="json") if checked else None,
+        "cost_usd": result.cost_usd,
+    }
+
+
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
+async def store_research(results: list[dict[str, Any]]) -> int:
+    """Store checked facts as unverified data; failed runs are skipped.
+
+    Args:
+        results: Outputs of :func:`research_place`.
+
+    Returns:
+        How many places were stored.
+    """
+    now = datetime.now(UTC)
+    stored = 0
+    async with transaction() as connection:
+        for item in results:
+            if item["facts"] is None:
+                continue
+            facts = CleanFacts.model_validate(item["facts"])
+            await connection.execute(
+                build_enrichment_update(item["place_id"], facts, now)
+            )
+            if facts.prices:
+                await connection.execute(
+                    build_price_upsert(item["place_id"], facts, now)
+                )
+            stored += 1
+    return stored

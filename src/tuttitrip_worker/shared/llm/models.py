@@ -15,6 +15,7 @@ a real provider. The ids are the same as in the backend's catalog.
 ``tuttitrip:decide-laya``   Laya (local decision model), else Qwen chat
 ``tuttitrip:decide-cloud``  JEV decision model through OpenRouter
 ``tuttitrip:openrouter``    OpenRouter only (``generate_trip_plan``)
+``tuttitrip:enrich``        OpenRouter, the cheap web-research model (``enrich.model``)
 ``tuttitrip:local``         the local OpenAI-compatible endpoint only
 ====================== ================================================
 
@@ -64,6 +65,7 @@ class ModelKey(StrEnum):
     DECIDE_LAYA = "decide-laya"
     DECIDE_CLOUD = "decide-cloud"
     OPENROUTER = "openrouter"
+    ENRICH = "enrich"
     LOCAL = "local"
 
 
@@ -155,7 +157,7 @@ def _chain(key: ModelKey, *links: Model | None) -> Model:
     return models[0] if len(models) == 1 else FallbackModel(*models)
 
 
-def build_model(key: ModelKey | LlmProvider, settings: LlmSettings) -> Model:
+def build_model(key: ModelKey | LlmProvider, settings: LlmSettings) -> Model:  # ruff: ignore[too-many-return-statements] one case per catalog id
     """Build the real model (or fallback chain) for a catalog id from settings.
 
     Links whose API key is missing are left out of the chain.
@@ -172,6 +174,10 @@ def build_model(key: ModelKey | LlmProvider, settings: LlmSettings) -> Model:
     match model_key:
         case ModelKey.OPENROUTER:
             return _chain(model_key, _openrouter(settings))
+        case ModelKey.ENRICH:
+            return _chain(
+                model_key, build_openrouter(get_settings().enrich.model, settings)
+            )
         case ModelKey.LOCAL:
             return OpenAIChatModel(
                 settings.local_model,
