@@ -27,6 +27,7 @@ DOMAIN_FILES = frozenset(
         "schemas.py",
         "steps.py",
         "agents.py",
+        "constants.py",
     }
 )
 REQUIRED_DOMAIN_FILES = ("__init__.py", "workflows.py", "schemas.py")

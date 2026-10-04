@@ -31,6 +31,7 @@ PURE = (
     rf"^{PACKAGE}\.(contracts|quotes)$",
     r"\.schemas$",
     r"\.logic(\.|$)",
+    r"\.constants$",
 )
 
 

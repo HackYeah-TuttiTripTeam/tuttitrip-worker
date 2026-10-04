@@ -13,8 +13,10 @@ from tuttitrip_worker.contracts import (
     parse_input,
 )
 from tuttitrip_worker.places import steps
+from tuttitrip_worker.places.constants import PROGRESS_FETCHING, PROGRESS_LOCATING
 from tuttitrip_worker.places.logic.slug import slugify
 from tuttitrip_worker.places.schemas import GeocodedCity, RefreshState
+from tuttitrip_worker.shared.dbos.constants import PROGRESS_DONE
 from tuttitrip_worker.shared.dbos.runtime import PORTABLE, report_progress
 
 PAUSE_BETWEEN_QUERIES_SEC = 1
@@ -52,7 +54,7 @@ async def fetch_place_candidates(payload: dict[str, Any]) -> dict[str, Any]:
             city_slug=slug, refreshed=False, stored=0
         ).model_dump(mode="json")
 
-    await report_progress("locating", 10)
+    await report_progress(*PROGRESS_LOCATING)
     relation_id, timezone = state.relation_id, state.timezone
     if request.city_query is not None or relation_id is None or timezone is None:
         query = request.city_query or state.city_name
@@ -81,10 +83,10 @@ async def fetch_place_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         raise contract_failure(
             ErrorCode.RATE_LIMITED, "daily Overpass budget spent, try tomorrow"
         )
-    await report_progress("fetching", 40)
+    await report_progress(*PROGRESS_FETCHING)
     stored = await steps.import_places(slug, relation_id, timezone)
     await steps.mark_fetched(slug, relation_id, stored)
-    await report_progress("done", 100)
+    await report_progress(*PROGRESS_DONE)
     return FetchPlaceCandidatesOutput(
         city_slug=slug, refreshed=True, stored=stored
     ).model_dump(mode="json")

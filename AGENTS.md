@@ -75,6 +75,7 @@ tests/architecture/    structure + dependency rules (pytest-archon)
 | `schemas.py` | yes | Internal Pydantic models. Pure. |
 | `steps.py` | if I/O | `@DBOS.step` functions: model calls, HTTP, database. |
 | `agents.py` | if LLM | Module-level Pydantic AI agents with `DBOSDurability`. |
+| `constants.py` | optional | Fixed values with docstrings (see "Magic values"). Pure. |
 | `logic/` | optional | Pure logic (rules, math, row building). |
 | `services/` | optional | Larger I/O helpers used by steps. |
 | `<subdomain>/` | optional | Same layout, nested. |
@@ -271,6 +272,36 @@ safe: the backend reset is atomic and serialized by an advisory lock.
   Postgres are replaced with `monkeypatch` in workflow tests; their SQL is
   compiled and asserted separately.
 - Domain tests go in `tests/domains/`, shared infrastructure in `tests/shared/`.
+
+## Magic values
+
+No magic strings or numbers in code: a bare literal that carries meaning (a threshold, a
+limit, a header name, a status or error code repeated in places, a regex, a spec constant)
+gets a name. Obvious values stay inline: `0`, `1`, `-1`, `""`, `True`/`False`, list
+indices, `status.HTTP_*`, and literals in tests.
+
+- **Fixed values** (HTTP header names, error codes, progress stages, enum-like literals, OSM
+  and Overpass identifiers, regexes, limits that are part of the contract) go to the domain's
+  `constants.py` (`shared/<sub>/constants.py` when several domains use them). Each one is a
+  typed `Final` constant with a docstring that says what it is.
+- **Deployment-tunable values** (timeouts, upload and rate limits, retry counts, TTLs, cron
+  schedules, URLs, model names) are `pydantic-settings` fields with a default and
+  `Field(description=...)` in `shared/config/settings.py`, and a line in `.env.example` (`tests/test_settings.py` checks it).
+- `constants.py` is pure like `schemas.py` and `logic/` (test-enforced). A domain imports its own
+  `constants.py` and `shared`'s, never another domain's.
+- Ruff enforces the comparison part (`PLR2004`, strings included; off in tests). The rest
+  is code review.
+
+```python
+# places/constants.py
+OSM_AREA_ID_OFFSET: Final = 3_600_000_000
+"""Overpass area id = this offset + the OSM relation id."""
+
+
+# shared/config/settings.py
+class DbosSettings(BaseModel):
+    step_max_attempts: int = Field(default=3, ge=1, description="Attempts of a step.")
+```
 
 ## Settings and secrets
 

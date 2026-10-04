@@ -10,6 +10,7 @@ from dbos import DBOS
 from sqlalchemy.dialects.postgresql import Insert, insert
 
 from tuttitrip_worker.contracts import CONTRACT_VERSION
+from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.db.engine import transaction
 from tuttitrip_worker.shared.db.tables import job_results
 
@@ -43,7 +44,7 @@ def build_job_result_upsert(
     )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
+@DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def save_job_result(
     workflow_id: str, workflow_name: str, result: dict[str, Any]
 ) -> None:

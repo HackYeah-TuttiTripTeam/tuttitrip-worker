@@ -4,6 +4,11 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any, Final
 
+from tuttitrip_worker.places.constants import (
+    CATEGORY_LODGING,
+    CATEGORY_RESTAURANT,
+    OSM_TYPE_NODE,
+)
 from tuttitrip_worker.places.logic.hours import weekly_hours
 from tuttitrip_worker.places.logic.taxonomy import classify
 from tuttitrip_worker.places.schemas import PlaceRow
@@ -78,7 +83,7 @@ def _cuisine(value: str | None) -> str | None:
 
 
 def _point(element: Mapping[str, Any]) -> tuple[float, float] | None:
-    source = element if element.get("type") == "node" else element.get("center")
+    source = element if element.get("type") == OSM_TYPE_NODE else element.get("center")
     if not isinstance(source, Mapping):
         return None
     lat, lon = source.get("lat"), source.get("lon")
@@ -117,7 +122,7 @@ def to_place_row(
     found = classify(tags)
     if not name or found is None:
         return None
-    lodging = found.category == "lodging"
+    lodging = found.category == CATEGORY_LODGING
     hours = tags.get("opening_hours")
     return PlaceRow(
         name=name,
@@ -131,7 +136,7 @@ def to_place_row(
         wheelchair=WHEELCHAIR.get(tags.get("wheelchair", "")),
         indoor=found.indoor,
         cuisine=_cuisine(tags.get("cuisine"))
-        if found.category == "restaurant"
+        if found.category == CATEGORY_RESTAURANT
         else None,
         diet_tags=[diet for key, diet in DIETS.items() if tags.get(key) in YES],
         amenities=(

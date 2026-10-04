@@ -7,9 +7,10 @@ from dbos import DBOS
 
 from tuttitrip_worker.contracts import APPLICATION_NAME
 from tuttitrip_worker.demo import steps
+from tuttitrip_worker.demo.constants import REFUSED
 from tuttitrip_worker.demo.schemas import DemoResetResult
 from tuttitrip_worker.demo.services.backend_client import DemoResetError
-from tuttitrip_worker.shared.config.settings import get_settings
+from tuttitrip_worker.shared.config.settings import LOCAL_ENVIRONMENT, get_settings
 
 logger = logging.getLogger(APPLICATION_NAME)
 
@@ -31,12 +32,12 @@ async def reset_demo_account(scheduled_at: datetime, context: object) -> None:
     settings = get_settings()
     if not settings.demo.reset_secret.get_secret_value():
         logger.warning("demo reset skipped: no TUTTITRIP_DEMO__RESET_SECRET")
-        if settings.environment != "local":
+        if settings.environment != LOCAL_ENVIRONMENT:
             msg = "TUTTITRIP_DEMO__RESET_SECRET is not set"
             raise DemoResetError(msg)
         return
     result = DemoResetResult.model_validate(await steps.post_demo_reset())
-    if result.status == "refused":
+    if result.status == REFUSED:
         msg = "the backend refused the demo reset (wrong secret or no endpoint)"
         raise DemoResetError(msg)
     logger.info("demo reset: %s (%d trips)", result.status, result.trips)
