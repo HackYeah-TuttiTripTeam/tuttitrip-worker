@@ -1,6 +1,6 @@
 """System workflows: ``ping`` (backend smoke test) and the heartbeat schedule."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from dbos import DBOS
@@ -39,3 +39,13 @@ async def heartbeat(scheduled_at: datetime, context: object) -> None:
     """
     del scheduled_at, context
     await steps.upsert_heartbeat()
+
+
+def beat_now() -> None:
+    """Start the heartbeat workflow once, right after launch (not awaited).
+
+    The cron only fires every 30 s, so without this a fresh worker looks
+    ``missing`` in the backend's ``/health`` until the first tick. A failure
+    shows up as an ``ERROR`` heartbeat workflow; the schedule keeps trying.
+    """
+    DBOS.start_workflow(heartbeat, datetime.now(UTC), None)
