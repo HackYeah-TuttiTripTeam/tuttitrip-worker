@@ -18,9 +18,11 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     Double,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -64,6 +66,26 @@ pasted_documents = Table(
     Column("trip_id", Uuid, nullable=False),
     Column("kind", String(10), nullable=False),
     Column("text", Text, nullable=False),
+)
+
+# Read-only for the worker (SELECT grant): the dates a trip runs on.
+trips = Table(
+    "trips",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("start_date", Date),
+    Column("end_date", Date),
+)
+
+# Read-only for the worker (SELECT grant): a receipt image or bank screenshot
+# waiting for `read_receipt`. The image never leaves a step.
+expense_evidence = Table(
+    "expense_evidence",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("trip_id", Uuid, nullable=False),
+    Column("data", LargeBinary, nullable=False),
+    Column("media_type", String(20), nullable=False),
 )
 
 # Place catalog: SELECT, INSERT and UPDATE for the worker (no DELETE). Only the
