@@ -198,7 +198,9 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 - **Data.** The backend owns the schema and migrations. The worker connects
   as role `tuttitrip_worker` (`TUTTITRIP_WORKER_DATABASE_URL`) with SELECT on
   the domain tables it reads (`trips`, `profiles`, `pasted_documents`, `plan_versions`) and write access only to
-  `embeddings`, `job_results`, `worker_heartbeats`. `shared/db/tables.py`
+  `embeddings`, `job_results`, `worker_heartbeats`, the OSM fetch state
+  (`city_fetches`, `city_fetch_attempts`) and `notifications` (SELECT, INSERT,
+  DELETE, no UPDATE). `shared/db/tables.py`
   maps their columns without DDL; `tests/test_no_ddl.py` forbids
   `create_all`/DDL. A new table = backend migration + `deploy/worker-grants.sql`
   there, then a mapping here.
@@ -224,6 +226,8 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | `generate_trip_plan` | `openrouter` (or `local_llm` for `provider=local`) | `{contract_version, trip_id, request, provider}` | `{contract_version, destination, days, highlights}` |
 | `embed_texts` | `default` | `{contract_version, source_kind, source_id, texts}` | `{contract_version, model, dimensions, stored}` |
 | `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` | `{contract_version, city_slug, source, refreshed, stored}` |
+| `parse_expense_text` | `local_llm` | `{contract_version, trip_id, text, locale}` | `{contract_version, amount_minor, currency, description, payer_name, included_names, excluded_names, confidence}` |
+| `read_receipt` | `local_llm` | `{contract_version, trip_id, evidence_id}` | `{contract_version, amount_minor, currency, spent_on, merchant, category, needs_confirmation, reasons}` |
 | `ping` | `default` | `{contract_version, message}` | `{contract_version, message, worker_app_version}` |
 | `parse_pasted_plan` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, city_slug, provider}` | `{contract_version, items, unread, matches}` |
 | `extract_offer_evidence` | `openrouter` (`queue_for(provider)`) | `{contract_version, trip_id, document_id, requirement_keys, requirements?, provider}` | `{contract_version, evidence: [{requirement_key, quotes: [{text, verdict?, confidence?}]}]}`; `quotes == []` = silent offer, `verdict` null = judge unavailable |
@@ -233,8 +237,14 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 `parse_pasted_plan` reads the plan by `document_id` + `trip_id` (SELECT on
 `pasted_documents`), runs `pasted_plan_parser` on `tuttitrip:chat`, keeps only
 items the text backs up (verbatim one-line quote, name, times and amount in the quote; see `linter/logic/quotes.py`), lists the rest
-in `unread`, stores the output in `job_results`. `matches` stays empty until
-the matching step (#24). Real-model check: `scripts/smoke_parse_plan.py`.
+in `unread`, matches each item to the catalog places of `city_slug`
+(`linter/logic/candidates.py` ranks at most nine by name similarity with
+`difflib`; the decision model `place_matcher` on `tuttitrip:decide` picks one
+or "none"; `matched` needs a reported confidence of at least 0.5, else
+`needs_confirmation`; no candidates, "none" or the model switched off
+(`TUTTITRIP_LINTER__MATCH_WITH_MODEL=false`) or down leaves it to the
+similarity threshold 0.85), and stores the output with `matches` in
+`job_results`. Real-model check: `scripts/smoke_parse_plan.py`.
 \[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
 
@@ -251,6 +261,47 @@ its template. Entries are group-level (`profile_id` null) with `source="model"`.
 ends with `document_not_found`. Children's data goes to the model: use `provider=local` (GB10) unless
 the team allows OpenRouter for justifications. The backend enqueues with the workflow id
 `write_justifications:<plan_id>`, so a repeated request returns the same job and costs no second call.
+
+## Expenses
+
+`parse_expense_text` and `read_receipt` (`expenses/`). Prices are never
+guessed: the amount must be written in the text as a whole number token
+(`logic/amounts.py`; `120` is not accepted for `120,50 zł`), a sentence with
+two priced amounts is refused as ambiguous, and a currency or name the text
+does not contain is dropped. Output `confidence` of `parse_expense_text` is
+always `None`: the chat model reports none and the check is binary. For
+`read_receipt`, `needs_confirmation` has reasons (`items_sum_mismatch`,
+`date_outside_trip`, `low_confidence`...); the decision model's confidence is
+the lowest margin of its two answers, and none counts as low.
+
+The image goes only to `tuttitrip:vision` (the GB10, no `FallbackModel`, no
+OpenRouter link). A GB10 outage ends the job with `model_output_invalid` and
+the message "the local model is unavailable ... enter the expense by hand";
+`ContractError` is not retried. The image is read and sent inside one step, so
+its bytes are never a step input or output (a test searches the DBOS system
+tables for them, raw and base64).
+
+DBOS keeps workflow inputs and step outputs, and `DBOSDurability` stores the
+model requests and responses of the text agents, in the system database. So
+the typed expense sentence and the OCR text of a receipt (not the image) stay
+there until the workflow history is deleted; set a retention for DBOS history
+before real user data goes through it.
+
+## Notifications
+
+The worker never calls the backend for notifications; it inserts rows into
+`notifications` (backend#133) and a trigger wakes the live stream.
+`shared/db/notifications.py` has the `notify_user` step:
+`INSERT ... ON CONFLICT (user_sub, dedupe_key) DO NOTHING` with an id derived
+from (user, key), so retries and recovery add nothing. The `dedupe_key` names
+the thing and its version or day (`plan_ready:<trip>:<workflow>`). Allowed
+types and buttons are `NotificationType` and `NotificationActionCode` in
+`contracts.py` (a test pins them to the backend's lists). The recipient of
+`plan_ready` is the workflow's authenticated user (`DBOS.authenticated_user`,
+set by the backend's `enqueue(user=...)`), so the payload needs no `user`. The
+worker cannot read `trip_members`; a notification for several people needs the
+recipients in the job input. `purge_notifications` (schedule, 03:30) deletes
+read rows older than 90 days and all older than 180, 1000 per transaction.
 
 ## Demo reset
 

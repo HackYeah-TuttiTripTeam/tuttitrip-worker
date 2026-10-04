@@ -8,11 +8,12 @@ PROGRESS_LOADING: Final = ("loading", 5)
 PROGRESS_READING: Final = ("reading", 15)
 """``progress`` event while the model reads the plan."""
 
+PROGRESS_MATCHING: Final = ("matching", 60)
+"""``progress`` event while the items are matched to the catalog."""
+
 PROGRESS_SAVING: Final = ("saving", 90)
 """``progress`` event while the result is stored."""
 
-PROMPT_TAG_DIGEST_CHARS: Final = 16
-"""Hex characters of the hash in the unique tag that fences the pasted text."""
 
 LINE_BREAKS: Final = ("\n", "\r")
 """Characters that make a quote span more than one line."""

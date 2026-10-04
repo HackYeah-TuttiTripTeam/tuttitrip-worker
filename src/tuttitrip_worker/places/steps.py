@@ -10,7 +10,9 @@ Usage policies, kept here (see ``OsmSettings``):
   workflow reserves a slot (``reserve_overpass_slot``) before its first
   Overpass call; at most ``overpass_daily_limit`` reservations a day, failed
   attempts included.
-* The Nominatim answer is cached as the ``cities`` row and the refresh marker.
+* The Nominatim answer is cached as the ``cities`` row; the fetch state is
+  ``city_fetches`` (refresh period, OSM relation) and ``city_fetch_attempts``
+  (daily quota), both owned by the backend.
 
 Every step is idempotent: the city insert does nothing on conflict, places are
 upserted by (``osm_type``, ``osm_id``) and never overwrite sheet rows.
@@ -23,11 +25,9 @@ from typing import Any, Final
 
 import httpx
 from dbos import DBOS
-from sqlalchemy import DateTime, Select, case, cast, func, select
+from sqlalchemy import Select, case, func, select
 from sqlalchemy.dialects.postgresql import Insert, insert
-from sqlalchemy.engine import RowMapping
 
-from tuttitrip_worker.contracts import CONTRACT_VERSION, Workflow
 from tuttitrip_worker.places.constants import OVERPASS_BUSY_MARKER, SOURCE_OSM
 from tuttitrip_worker.places.logic.city import parse_city
 from tuttitrip_worker.places.logic.hours import monday_of
@@ -36,20 +36,18 @@ from tuttitrip_worker.places.logic.taxonomy import overpass_query
 from tuttitrip_worker.places.schemas import GeocodedCity, PlaceRow, RefreshState
 from tuttitrip_worker.shared.config.settings import get_settings
 from tuttitrip_worker.shared.db.engine import transaction
-from tuttitrip_worker.shared.db.job_results import build_job_result_upsert
-from tuttitrip_worker.shared.db.tables import cities, job_results, places
+from tuttitrip_worker.shared.db.tables import (
+    cities,
+    city_fetch_attempts,
+    city_fetches,
+    places,
+)
 
 RETRY_PAUSE_SEC: Final = 30.0
 """Pause before the first retry after a 429 (Overpass policy); it doubles."""
 MAX_ATTEMPTS: Final = 4
 HTTP_TIMEOUT_SEC: Final = 120.0
 BATCH_SIZE: Final = 500
-# ponytail: markers and attempts live in job_results until the backend has a
-# city_fetches table, see HackYeah-TuttiTripTeam/tuttitrip-backend#159.
-MARKER_PREFIX: Final = "osm-fetch:"
-"""``job_results.workflow_id`` prefix of the per-city refresh marker."""
-ATTEMPT_PREFIX: Final = "osm-attempt:"
-"""Prefix of the per-workflow reservation rows (the daily quota)."""
 LOCK_KEY: Final = 0x0054_7574_5472_6970
 """Key of the advisory lock that serializes reservations."""
 SERVER_ERRORS: Final = 500
@@ -127,18 +125,6 @@ async def _send(
     return response
 
 
-def marker_id(slug: str) -> str:
-    """Key of the refresh marker of a city in ``job_results``.
-
-    Args:
-        slug: City slug.
-
-    Returns:
-        The ``workflow_id`` of the marker row.
-    """
-    return f"{MARKER_PREFIX}{slug}"
-
-
 # --- statements (pure builders, compiled in tests) --------------------------------
 
 
@@ -156,8 +142,8 @@ def build_city_select(slug: str) -> Select[Any, Any, Any]:
     )
 
 
-def build_marker_select(slug: str) -> Select[dict[str, Any]]:
-    """``SELECT result`` of the refresh marker of one city.
+def build_fetch_select(slug: str) -> Select[Any, Any]:
+    """``SELECT osm_relation_id, fetched_at`` of the last fetch of one city.
 
     Args:
         slug: City slug.
@@ -165,8 +151,8 @@ def build_marker_select(slug: str) -> Select[dict[str, Any]]:
     Returns:
         The statement (not executed).
     """
-    return select(job_results.c.result).where(
-        job_results.c.workflow_id == marker_id(slug)
+    return select(city_fetches.c.osm_relation_id, city_fetches.c.fetched_at).where(
+        city_fetches.c.city_slug == slug
     )
 
 
@@ -179,12 +165,7 @@ def build_recent_attempts_select(since: datetime) -> Select[int]:
     Returns:
         The statement (not executed).
     """
-    reserved_at = cast(
-        job_results.c.result["reserved_at"].astext, DateTime(timezone=True)
-    )
-    return select(func.count()).where(
-        job_results.c.workflow_id.like(f"{ATTEMPT_PREFIX}%"), reserved_at > since
-    )
+    return select(func.count()).where(city_fetch_attempts.c.reserved_at > since)
 
 
 def build_attempt_select(workflow_id: str) -> Select[int]:
@@ -196,9 +177,7 @@ def build_attempt_select(workflow_id: str) -> Select[int]:
     Returns:
         The statement (not executed).
     """
-    return select(func.count()).where(
-        job_results.c.workflow_id == f"{ATTEMPT_PREFIX}{workflow_id}"
-    )
+    return select(func.count()).where(city_fetch_attempts.c.workflow_id == workflow_id)
 
 
 def build_attempt_insert(workflow_id: str, slug: str, now: datetime) -> Insert:
@@ -213,14 +192,36 @@ def build_attempt_insert(workflow_id: str, slug: str, now: datetime) -> Insert:
         The statement (not executed).
     """
     return (
-        insert(job_results)
-        .values(
-            workflow_id=f"{ATTEMPT_PREFIX}{workflow_id}",
-            workflow_name=Workflow.FETCH_PLACE_CANDIDATES.value,
-            contract_version=CONTRACT_VERSION,
-            result={"slug": slug, "reserved_at": now.isoformat()},
-        )
-        .on_conflict_do_nothing(index_elements=[job_results.c.workflow_id])
+        insert(city_fetch_attempts)
+        .values(workflow_id=workflow_id, city_slug=slug, reserved_at=now)
+        .on_conflict_do_nothing(index_elements=[city_fetch_attempts.c.workflow_id])
+    )
+
+
+def build_fetch_upsert(
+    slug: str, relation_id: int, stored: int, now: datetime
+) -> Insert:
+    """Upsert the last fetch of a city (the city row must exist: foreign key).
+
+    Args:
+        slug: City slug.
+        relation_id: OSM relation that was queried.
+        stored: How many places were written.
+        now: Moment of the fetch.
+
+    Returns:
+        The statement (not executed).
+    """
+    statement = insert(city_fetches).values(
+        city_slug=slug, osm_relation_id=relation_id, fetched_at=now, stored=stored
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[city_fetches.c.city_slug],
+        set_={
+            "osm_relation_id": statement.excluded.osm_relation_id,
+            "fetched_at": statement.excluded.fetched_at,
+            "stored": statement.excluded.stored,
+        },
     )
 
 
@@ -300,13 +301,6 @@ def build_places_upsert(slug: str, rows: list[PlaceRow]) -> Insert:
 # --- steps -----------------------------------------------------------------------
 
 
-def _marker_relation(result: RowMapping | None) -> tuple[int | None, datetime | None]:
-    if result is None:
-        return None, None
-    data = result["result"]
-    return int(data["relation_id"]), datetime.fromisoformat(str(data["fetched_at"]))
-
-
 @DBOS.step(retries_allowed=True, max_attempts=get_settings().dbos.step_max_attempts)
 async def load_refresh_state(slug: str) -> dict[str, Any]:
     """Read what the catalog knows about a city.
@@ -321,11 +315,9 @@ async def load_refresh_state(slug: str) -> dict[str, Any]:
     now = datetime.now(UTC)
     async with transaction() as connection:
         city = (await connection.execute(build_city_select(slug))).mappings().first()
-        marker = (
-            (await connection.execute(build_marker_select(slug))).mappings().first()
-        )
-    relation_id, fetched_at = _marker_relation(marker)
-    fresh = fetched_at is not None and now - fetched_at < timedelta(
+        fetch = (await connection.execute(build_fetch_select(slug))).mappings().first()
+    relation_id = int(fetch["osm_relation_id"]) if fetch else None
+    fresh = fetch is not None and now - fetch["fetched_at"] < timedelta(
         days=settings.refresh_days
     )
     return RefreshState(
@@ -465,13 +457,6 @@ async def mark_fetched(slug: str, relation_id: int, stored: int) -> None:
         relation_id: OSM relation that was queried (saves a Nominatim call later).
         stored: How many places were written.
     """
-    result = {
-        "fetched_at": datetime.now(UTC).isoformat(),
-        "relation_id": relation_id,
-        "stored": stored,
-    }
-    statement = build_job_result_upsert(
-        marker_id(slug), Workflow.FETCH_PLACE_CANDIDATES.value, result
-    )
+    statement = build_fetch_upsert(slug, relation_id, stored, datetime.now(UTC))
     async with transaction() as connection:
         await connection.execute(statement)

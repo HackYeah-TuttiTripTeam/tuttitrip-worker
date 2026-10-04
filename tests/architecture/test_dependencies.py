@@ -28,7 +28,7 @@ IO_FRAMEWORKS = (
     "httpx",
 )
 PURE = (
-    rf"^{PACKAGE}\.(contracts|quotes)$",
+    rf"^{PACKAGE}\.(contracts|quotes|prompts)$",
     r"\.schemas$",
     r"\.logic(\.|$)",
     r"\.constants$",

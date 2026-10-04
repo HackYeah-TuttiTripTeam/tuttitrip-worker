@@ -10,6 +10,7 @@ a real provider. The ids are the same as in the backend's catalog.
 ====================== ================================================
 ``tuttitrip:agent``    Qwen3.8-27B (thinking) on the GB10, else OpenRouter
 ``tuttitrip:chat``     Qwen3.8-27B chat (no thinking) on the GB10, else OpenRouter
+``tuttitrip:vision``   Qwen3.8-27B chat on the GB10 ONLY (images never go to a cloud)
 ``tuttitrip:decide``   basal (local decision model), else Qwen chat
 ``tuttitrip:decide-laya``   Laya (local decision model), else Qwen chat
 ``tuttitrip:decide-cloud``  JEV decision model through OpenRouter
@@ -58,6 +59,7 @@ class ModelKey(StrEnum):
 
     AGENT = "agent"
     CHAT = "chat"
+    VISION = "vision"
     DECIDE = "decide"
     DECIDE_LAYA = "decide-laya"
     DECIDE_CLOUD = "decide-cloud"
@@ -132,10 +134,12 @@ def _chain(key: ModelKey, *links: Model | None) -> Model:
     """
     models = [link for link in links if link is not None]
     if not models:
-        msg = (
-            f"No API key is configured for {model_id(key)}: set "
-            "TUTTITRIP_LLM__GB10_API_KEY and/or OPENROUTER_API_KEY."
+        wanted = (
+            "TUTTITRIP_LLM__GB10_API_KEY"
+            if key is ModelKey.VISION
+            else "TUTTITRIP_LLM__GB10_API_KEY and/or OPENROUTER_API_KEY"
         )
+        msg = f"No API key is configured for {model_id(key)}: set {wanted}."
         raise UserError(msg)
     return models[0] if len(models) == 1 else FallbackModel(*models)
 
@@ -168,8 +172,10 @@ def build_model(key: ModelKey | LlmProvider, settings: LlmSettings) -> Model:
         case ModelKey.AGENT:
             qwen = _gb10_qwen(settings.gb10_agent_model, settings)
             return _chain(model_key, qwen, _openrouter(settings))
-        case ModelKey.CHAT:
-            return _chain(model_key, qwen_chat, _openrouter(settings))
+        case ModelKey.CHAT | ModelKey.VISION:
+            # Vision has no OpenRouter link: an image stays on our GB10.
+            cloud = None if model_key is ModelKey.VISION else _openrouter(settings)
+            return _chain(model_key, qwen_chat, cloud)
         case ModelKey.DECIDE | ModelKey.DECIDE_LAYA:
             name, url = {
                 ModelKey.DECIDE: (settings.basal_model, settings.basal_base_url),
