@@ -109,6 +109,20 @@ class OsmSettings(BaseModel):
     overpass_daily_limit: int = Field(default=50, ge=1, le=100)
 
 
+class PlanningSettings(BaseModel):
+    """Options of the planning workflows."""
+
+    justification_batch_size: int = Field(
+        default=6,
+        ge=1,
+        le=50,
+        description=(
+            "Verdicts per model call in write_justifications; local models are "
+            "unreliable with long outputs."
+        ),
+    )
+
+
 class LinterSettings(BaseModel):
     """Matching of pasted plan items to the catalog."""
 
@@ -151,6 +165,7 @@ class Settings(BaseSettings):
     )
     dbos: DbosSettings = Field(default_factory=DbosSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)
+    planning: PlanningSettings = Field(default_factory=PlanningSettings)
     demo: DemoSettings = Field(default_factory=DemoSettings)
     osm: OsmSettings = Field(default_factory=OsmSettings)
     linter: LinterSettings = Field(default_factory=LinterSettings)

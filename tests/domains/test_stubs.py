@@ -1,17 +1,13 @@
 """Contract stubs: workflows in the contract whose implementation comes later."""
 
-from typing import Any
 from uuid import uuid4
 
 import pytest
-from dbos import DBOSClient, PortableWorkflowError
 
-from tests.helpers import enqueue
 from tuttitrip_worker.contracts import (
     CONTRACT_VERSION,
     SUPPORTED_CONTRACT_VERSIONS,
     WORKFLOWS,
-    ErrorCode,
     ExtractOfferEvidenceInput,
     FetchPlaceCandidatesInput,
     ParsedPlanItem,
@@ -24,31 +20,6 @@ from tuttitrip_worker.contracts import (
     WriteJustificationsInput,
     queue_for,
 )
-from tuttitrip_worker.shared.config.settings import Settings
-
-STUBS: dict[Workflow, dict[str, Any]] = {
-    Workflow.WRITE_JUSTIFICATIONS: {"plan_id": str(uuid4())},
-}
-
-
-@pytest.mark.parametrize("name", list(STUBS))
-def test_stub_ends_with_not_implemented(
-    client: DBOSClient, dbos: Settings, name: Workflow
-) -> None:
-    payload = {"contract_version": CONTRACT_VERSION, **STUBS[name]}
-    handle = enqueue(client, dbos, name, payload)
-    with pytest.raises(PortableWorkflowError) as info:
-        handle.get_result()
-    assert info.value.name == "ContractError"
-    assert info.value.code == ErrorCode.NOT_IMPLEMENTED.value
-
-
-def test_stub_still_validates_the_payload(client: DBOSClient, dbos: Settings) -> None:
-    payload = {"contract_version": CONTRACT_VERSION}  # no plan id given
-    handle = enqueue(client, dbos, Workflow.WRITE_JUSTIFICATIONS, payload)
-    with pytest.raises(PortableWorkflowError) as info:
-        handle.get_result()
-    assert info.value.code == ErrorCode.INVALID_PAYLOAD.value
 
 
 def test_new_workflows_are_a_compatible_change() -> None:

@@ -197,7 +197,7 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
   old version. Use the `sync-contracts` skill.
 - **Data.** The backend owns the schema and migrations. The worker connects
   as role `tuttitrip_worker` (`TUTTITRIP_WORKER_DATABASE_URL`) with SELECT on
-  the domain tables it reads (`trips`, `profiles`, `pasted_documents`) and write access only to
+  the domain tables it reads (`trips`, `profiles`, `pasted_documents`, `plan_versions`) and write access only to
   `embeddings`, `job_results`, `worker_heartbeats`, the OSM fetch state
   (`city_fetches`, `city_fetch_attempts`) and `notifications` (SELECT, INSERT,
   DELETE, no UPDATE). `shared/db/tables.py`
@@ -234,8 +234,6 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 | `fetch_place_candidates` | `default` | `{contract_version, city_query \| city_slug}` \[1] | `{contract_version, city_slug, source, refreshed, stored}` |
 | `write_justifications` | `openrouter` (`queue_for(provider)`) | `{contract_version, plan_id, locale, provider}` | `{contract_version, justifications}` |
 
-The last two are stubs: they validate the payload and end with `ContractError`
-code `not_implemented` until their issues land (tuttitrip-worker#26-#27).
 `parse_pasted_plan` reads the plan by `document_id` + `trip_id` (SELECT on
 `pasted_documents`), runs `pasted_plan_parser` on `tuttitrip:chat`, keeps only
 items the text backs up (verbatim one-line quote, name, times and amount in the quote; see `linter/logic/quotes.py`), lists the rest
@@ -249,6 +247,20 @@ similarity threshold 0.85), and stores the output with `matches` in
 `job_results`. Real-model check: `scripts/smoke_parse_plan.py`.
 \[1] Dokładnie jedno z `city_query` i `city_slug`.
 Pasted text is never in a payload; the workflow reads it from `pasted_documents`.
+
+`write_justifications` reads `plan_versions.result` by `plan_id` (SELECT; the grant is the
+backend's, tuttitrip-backend#73) and cuts the verdicts, `explain()` and the people's names out of
+it (`planning/logic/verdict_facts.py`). The `verdict_justifier` agent (`tuttitrip:chat`,
+temperature 0) words at most two sentences per place, in batches of
+`TUTTITRIP_PLANNING__JUSTIFICATION_BATCH_SIZE`. Only the algorithm's numbers reach the text: the output
+validator (`planning/logic/justification_check.py`) sends the agent back (`ModelRetry`) when a text has a
+number that is not in the data (a fraction may be written as a percent), a capitalised word that is not
+a given name (declined forms pass), more than two sentences, or when a place is missing or doubled.
+After the last retry the texts that fail are dropped and the place has no entry; the backend then uses
+its template. Entries are group-level (`profile_id` null) with `source="model"`. An unknown `plan_id`
+ends with `document_not_found`. Children's data goes to the model: use `provider=local` (GB10) unless
+the team allows OpenRouter for justifications. The backend enqueues with the workflow id
+`write_justifications:<plan_id>`, so a repeated request returns the same job and costs no second call.
 
 ## Expenses
 
