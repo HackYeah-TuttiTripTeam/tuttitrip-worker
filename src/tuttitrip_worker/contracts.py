@@ -179,6 +179,35 @@ class PingOutput(ContractPayload):
     worker_app_version: str
 
 
+# --- notifications written by the worker -----------------------------------------
+
+NotificationType = Literal["plan_ready"]
+"""Types of notification the worker may insert (the backend owns the list,
+``NotificationType`` in ``tuttitrip.notifications.schemas``; a test pins the
+names). Not part of ``jobs.schema.json``: notifications are rows, not jobs."""
+
+NotificationActionCode = Literal["open_trip", "open_people", "open_plan"]
+"""Buttons a worker notification may carry (a subset of the backend's codes)."""
+
+
+class NotificationDraft(BaseModel):
+    """One notification to insert for a user (the recipient is passed apart).
+
+    ``params`` are small strings for the text (names, ids); no tokens and
+    nothing confidential, they reach the browser. ``dedupe_key`` names the thing
+    and its version or day (``plan_ready:<trip>:<workflow>``), so a retry or a
+    repeated job inserts nothing new.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    type: NotificationType
+    trip_id: UUID | None = None
+    params: dict[str, str] = Field(default_factory=dict, max_length=20)
+    actions: list[NotificationActionCode] = Field(default_factory=list, max_length=4)
+    dedupe_key: str = Field(min_length=1, max_length=255)
+
+
 # --- shared helpers -----------------------------------------------------------------
 
 SLUG_PATTERN: Final = r"^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -709,11 +738,13 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {PROGRESS_EVENT: Progress}
 SCHEDULED_WORKFLOWS: Final[Mapping[str, str]] = {
     "heartbeat": "*/30 * * * * *",
     "reset_demo_account": "0 0 4 * * *",
+    "purge_notifications": "0 30 3 * * *",
 }
 """Internal scheduled workflows (name -> 6-field cron, evaluated in
 ``SCHEDULE_TIMEZONE``), never enqueued by the backend. ``heartbeat`` upserts
 ``worker_heartbeats`` every 30 seconds; ``reset_demo_account`` restores the
-jury's demo account at 04:00."""
+jury's demo account at 04:00; ``purge_notifications`` deletes old rows of
+``notifications`` at 03:30."""
 
 SCHEDULE_TIMEZONE: Final = "Europe/Warsaw"
 """IANA timezone of every cron expression above."""

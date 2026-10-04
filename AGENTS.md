@@ -197,7 +197,9 @@ pytest-archon 0.0.7 notes: `should_not_import` is transitive by default,
 - **Data.** The backend owns the schema and migrations. The worker connects
   as role `tuttitrip_worker` (`TUTTITRIP_WORKER_DATABASE_URL`) with SELECT on
   the domain tables it reads (`trips`, `profiles`, `pasted_documents`) and write access only to
-  `embeddings`, `job_results`, `worker_heartbeats`. `shared/db/tables.py`
+  `embeddings`, `job_results`, `worker_heartbeats`, the OSM fetch state
+  (`city_fetches`, `city_fetch_attempts`) and `notifications` (SELECT, INSERT,
+  DELETE, no UPDATE). `shared/db/tables.py`
   maps their columns without DDL; `tests/test_no_ddl.py` forbids
   `create_all`/DDL. A new table = backend migration + `deploy/worker-grants.sql`
   there, then a mapping here.
@@ -265,6 +267,22 @@ model requests and responses of the text agents, in the system database. So
 the typed expense sentence and the OCR text of a receipt (not the image) stay
 there until the workflow history is deleted; set a retention for DBOS history
 before real user data goes through it.
+
+## Notifications
+
+The worker never calls the backend for notifications; it inserts rows into
+`notifications` (backend#133) and a trigger wakes the live stream.
+`shared/db/notifications.py` has the `notify_user` step:
+`INSERT ... ON CONFLICT (user_sub, dedupe_key) DO NOTHING` with an id derived
+from (user, key), so retries and recovery add nothing. The `dedupe_key` names
+the thing and its version or day (`plan_ready:<trip>:<workflow>`). Allowed
+types and buttons are `NotificationType` and `NotificationActionCode` in
+`contracts.py` (a test pins them to the backend's lists). The recipient of
+`plan_ready` is the workflow's authenticated user (`DBOS.authenticated_user`,
+set by the backend's `enqueue(user=...)`), so the payload needs no `user`. The
+worker cannot read `trip_members`; a notification for several people needs the
+recipients in the job input. `purge_notifications` (schedule, 03:30) deletes
+read rows older than 90 days and all older than 180, 1000 per transaction.
 
 ## Demo reset
 
